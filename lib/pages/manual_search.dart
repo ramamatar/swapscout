@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import '../widgets/selectable_chip.dart';
 import '../services/home_service.dart';
 import 'house_detail.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geocoding/geocoding.dart';
 
 class ManualSearchPage extends StatefulWidget {
   const ManualSearchPage({super.key});
@@ -25,6 +28,72 @@ class _ManualSearchPageState extends State<ManualSearchPage> {
   final TextEditingController _checkInController = TextEditingController();
   final TextEditingController _checkOutController = TextEditingController();
   final TextEditingController _guestsController = TextEditingController();
+
+  bool _useRadiusSearch = false;
+  double _radiusKm = 10.0;
+
+  LatLng? _targetLocation;
+  GoogleMapController? _mapController;
+  CameraPosition? _initialMapPos;
+
+  @override
+  void initState() {
+    super.initState();
+    _determineMapPosition();
+  }
+
+  Future<void> _determineMapPosition() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) return;
+      
+      Position position = await Geolocator.getCurrentPosition();
+      setState(() {
+        _initialMapPos = CameraPosition(
+          target: LatLng(position.latitude, position.longitude),
+          zoom: 12,
+        );
+        _targetLocation = LatLng(position.latitude, position.longitude);
+      });
+      if (_mapController != null && _initialMapPos != null) {
+        _mapController!.animateCamera(CameraUpdate.newCameraPosition(_initialMapPos!));
+      }
+    } catch (_) {}
+  }
+
+  Set<Marker> _buildMapMarkers() {
+    final markers = <Marker>{};
+    
+    if (_targetLocation != null) {
+      markers.add(Marker(
+        markerId: const MarkerId('target'),
+        position: _targetLocation!,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+        infoWindow: const InfoWindow(title: 'Search Center'),
+      ));
+    }
+    
+    for (var i = 0; i < _searchResults.length; i++) {
+      final home = _searchResults[i];
+      if (home['latitude'] != null && home['longitude'] != null) {
+        markers.add(Marker(
+          markerId: MarkerId('home_$i'),
+          position: LatLng(home['latitude'] as double, home['longitude'] as double),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          infoWindow: InfoWindow(
+            title: home['title'] ?? 'Home',
+            snippet: home['distance'] != null ? '${(home['distance'] as num).toStringAsFixed(1)} km away' : null,
+          ),
+        ));
+      }
+    }
+    return markers;
+  }
 
   @override
   void dispose() {
@@ -98,20 +167,38 @@ class _ManualSearchPageState extends State<ManualSearchPage> {
         amenitiesFilter = selectedAmenities.join(',');
       }
 
-      final results = await HomeService.searchHomes(
-        country: country,
-        city: city,
-        minCapacity: minCapacity,
-        environment: environment,
-        propertyType: propertyType,
-        amenities: amenitiesFilter,
-        dateFrom: _checkInController.text.trim().isNotEmpty
-            ? _checkInController.text.trim()
-            : null,
-        dateTo: _checkOutController.text.trim().isNotEmpty
-            ? _checkOutController.text.trim()
-            : null,
-      );
+      List<dynamic> results = [];
+
+      if (_useRadiusSearch) {
+        if (_targetLocation == null) {
+          throw Exception('Please tap the map to select a target location');
+        }
+        
+        results = await HomeService.searchHomesNearby(
+          targetLat: _targetLocation!.latitude,
+          targetLng: _targetLocation!.longitude,
+          radiusKm: _radiusKm,
+        );
+        
+        if (_mapController != null && results.isNotEmpty) {
+           _mapController!.animateCamera(CameraUpdate.newLatLngZoom(_targetLocation!, 12.0 - (_radiusKm / 20.0)));
+        }
+      } else {
+        results = await HomeService.searchHomes(
+          country: country,
+          city: city,
+          minCapacity: minCapacity,
+          environment: environment,
+          propertyType: propertyType,
+          amenities: amenitiesFilter,
+          dateFrom: _checkInController.text.trim().isNotEmpty
+              ? _checkInController.text.trim()
+              : null,
+          dateTo: _checkOutController.text.trim().isNotEmpty
+              ? _checkOutController.text.trim()
+              : null,
+        );
+      }
 
       setState(() {
         _searchResults = results;
@@ -129,6 +216,33 @@ class _ManualSearchPageState extends State<ManualSearchPage> {
       if (mounted) {
         setState(() => _isSearching = false);
       }
+    }
+  }
+
+  Future<void> _selectDateRange() async {
+    FocusScope.of(context).unfocus();
+    final DateTimeRange? picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFFF28C64),
+              onPrimary: Colors.white,
+              onSurface: Colors.black87,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() {
+        _checkInController.text = picked.start.toString().split(' ')[0];
+        _checkOutController.text = picked.end.toString().split(' ')[0];
+      });
     }
   }
 
@@ -159,9 +273,10 @@ class _ManualSearchPageState extends State<ManualSearchPage> {
         ],
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            // Search Header Section
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              // Search Header Section
             Container(
               color: Colors.white,
               padding: const EdgeInsets.all(16),
@@ -230,8 +345,10 @@ class _ManualSearchPageState extends State<ManualSearchPage> {
                       Expanded(
                         child: TextField(
                           controller: _checkInController,
+                          readOnly: true,
+                          onTap: _selectDateRange,
                           decoration: InputDecoration(
-                            hintText: 'Check-in (YYYY-MM-DD)',
+                            hintText: 'Check-in',
                             prefixIcon: const Icon(Icons.calendar_today_outlined),
                             filled: true,
                             fillColor: Colors.white,
@@ -257,8 +374,10 @@ class _ManualSearchPageState extends State<ManualSearchPage> {
                       Expanded(
                         child: TextField(
                           controller: _checkOutController,
+                          readOnly: true,
+                          onTap: _selectDateRange,
                           decoration: InputDecoration(
-                            hintText: 'Check-out (YYYY-MM-DD)',
+                            hintText: 'Check-out',
                             prefixIcon: const Icon(Icons.calendar_today_outlined),
                             filled: true,
                             fillColor: Colors.white,
@@ -308,6 +427,82 @@ class _ManualSearchPageState extends State<ManualSearchPage> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  // Radius Search Toggle
+                  SwitchListTile(
+                    title: const Text('Use Radius Search (Nearby Homes)', style: TextStyle(fontWeight: FontWeight.w500)),
+                    value: _useRadiusSearch,
+                    activeColor: const Color(0xFFF28C64),
+                    contentPadding: EdgeInsets.zero,
+                    onChanged: (bool value) async {
+                      if (value && (_cityController.text.trim().isNotEmpty || _countryController.text.trim().isNotEmpty)) {
+                        try {
+                          String query = "${_cityController.text.trim()}, ${_countryController.text.trim()}";
+                          List<Location> locs = await locationFromAddress(query);
+                          if (locs.isNotEmpty) {
+                            final newLoc = LatLng(locs.first.latitude, locs.first.longitude);
+                            setState(() {
+                              _targetLocation = newLoc;
+                              _initialMapPos = CameraPosition(target: newLoc, zoom: 12.0);
+                            });
+                            if (_mapController != null) {
+                              _mapController!.animateCamera(CameraUpdate.newCameraPosition(_initialMapPos!));
+                            }
+                          }
+                        } catch (e) {}
+                      }
+                      setState(() {
+                        _useRadiusSearch = value;
+                      });
+                    },
+                  ),
+                  if (_useRadiusSearch)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 12),
+                        const Text('Tap map to set Search Center target:', style: TextStyle(fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 8),
+                        Container(
+                          height: 250,
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey[400]!),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: GoogleMap(
+                              initialCameraPosition: _initialMapPos ?? const CameraPosition(
+                                target: LatLng(48.8566, 2.3522), // Default to Paris
+                                zoom: 12,
+                              ),
+                              onMapCreated: (controller) => _mapController = controller,
+                              onTap: (LatLng position) {
+                                setState(() {
+                                  _targetLocation = position;
+                                });
+                              },
+                              markers: _buildMapMarkers(),
+                              myLocationEnabled: true,
+                              myLocationButtonEnabled: true,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text('Radius: ${_radiusKm.toInt()} km', style: const TextStyle(fontWeight: FontWeight.w600)),
+                        Slider(
+                          value: _radiusKm,
+                          min: 1.0,
+                          max: 100.0,
+                          activeColor: const Color(0xFFF28C64),
+                          onChanged: (value) {
+                            setState(() {
+                              _radiusKm = value;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
@@ -503,10 +698,9 @@ class _ManualSearchPageState extends State<ManualSearchPage> {
               ),
 
             // Filter Options Section
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
@@ -687,8 +881,8 @@ class _ManualSearchPageState extends State<ManualSearchPage> {
                   ],
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -7,6 +7,7 @@ from models import Match, TripPreference, User, Home
 from auth_middleware import get_current_user
 from services.match_service import find_matches
 from schemas.match_schemas import MatchCreate, MatchResponse
+from services.ai_match_service import generate_compatibility
 
 
 router = APIRouter(prefix="/matches", tags=["Matches"])
@@ -29,6 +30,57 @@ def get_matches(
     return {
         "matches": matches
     }
+
+@router.get("/compatibility/{home_id}")
+def get_ai_compatibility(
+    home_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    home = db.query(Home).filter(Home.id == home_id).first()
+    if not home:
+        raise HTTPException(status_code=404, detail="Home not found")
+        
+    if home.owner_id == current_user.id:
+        return {"compatibility_score": 100, "match_explanation": "This is your own home!"}
+
+    # Check if match already exists in DB
+    existing_match = db.query(Match).filter(
+        or_(
+            and_(Match.user_a_id == current_user.id, Match.user_b_id == home.owner_id),
+            and_(Match.user_a_id == home.owner_id, Match.user_b_id == current_user.id)
+        )
+    ).first()
+
+    if existing_match and existing_match.compatibility_score:
+        return {
+            "compatibility_score": existing_match.compatibility_score,
+            "match_explanation": existing_match.match_explanation
+        }
+
+    preference = db.query(TripPreference).filter(
+        TripPreference.user_id == current_user.id
+    ).first()
+
+    ai_result = generate_compatibility(current_user, home.owner, home, preference)
+
+    if not existing_match:
+        new_match = Match(
+            user_a_id=current_user.id,
+            user_b_id=home.owner_id,
+            status="evaluated", 
+            compatibility_score=ai_result["compatibility_score"],
+            match_explanation=ai_result["match_explanation"]
+        )
+        db.add(new_match)
+        db.commit()
+    else:
+        existing_match.compatibility_score = ai_result["compatibility_score"]
+        existing_match.match_explanation = ai_result["match_explanation"]
+        db.commit()
+
+    return ai_result
+
 @router.post("/", response_model=MatchResponse, status_code=201)
 def create_match_request(
     data: MatchCreate,
@@ -52,14 +104,33 @@ def create_match_request(
         )
     ).first()
     
+    preference = db.query(TripPreference).filter(
+        TripPreference.user_id == current_user.id
+    ).first()
+
+    ai_result = generate_compatibility(current_user, home.owner, home, preference)
+
     if existing_match:
-        raise HTTPException(status_code=400, detail="Match request already exists")
+        if existing_match.status == "pending":
+            raise HTTPException(status_code=400, detail="Match request is already pending")
+        
+        # Recycle the old match (it was accepted, rejected, or expired)
+        existing_match.user_a_id = current_user.id
+        existing_match.user_b_id = home.owner_id
+        existing_match.status = "pending"
+        existing_match.compatibility_score = ai_result["compatibility_score"]
+        existing_match.match_explanation = ai_result["match_explanation"]
+        db.commit()
+        db.refresh(existing_match)
+        return existing_match
     
-    # Create match request (current user is user_a, home owner is user_b)
+    # Create new match request (current user is user_a, home owner is user_b)
     match = Match(
         user_a_id=current_user.id,
         user_b_id=home.owner_id,
-        status="pending"
+        status="pending",
+        compatibility_score=ai_result["compatibility_score"],
+        match_explanation=ai_result["match_explanation"]
     )
     db.add(match)
     db.commit()

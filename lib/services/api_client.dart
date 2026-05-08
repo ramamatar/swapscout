@@ -1,11 +1,20 @@
 import 'dart:convert';
+import 'dart:async';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'token_storage.dart';
+import '../utils/global_messenger.dart';
 
 class ApiClient {
   static const String baseUrl = 'http://127.0.0.1:8000';
 
-  static Future<Map<String, String>> _getHeaders({bool includeAuth = true}) async {
+  static String getFullImageUrl(String? path) {
+    if (path == null || path.isEmpty) return 'https://placehold.co/600x400?text=No+Image';
+    if (path.startsWith('http')) return path;
+    return '\$baseUrl\$path';
+  }
+
+  static Future<Map<String, String>> getHeaders({bool includeAuth = true}) async {
     final headers = <String, String>{
       'Content-Type': 'application/json',
     };
@@ -20,6 +29,22 @@ class ApiClient {
     return headers;
   }
 
+  static Future<http.Response> _handleRequest(Future<http.Response> Function() request) async {
+    try {
+      final response = await request().timeout(const Duration(seconds: 45));
+      return response;
+    } on SocketException {
+      GlobalMessenger.showError("No internet connection.");
+      rethrow;
+    } on TimeoutException {
+      GlobalMessenger.showError("Connection timed out.");
+      rethrow;
+    } catch (e) {
+      GlobalMessenger.showError("An unexpected network error occurred.");
+      rethrow;
+    }
+  }
+
   static Future<http.Response> get(
     String endpoint, {
     Map<String, String>? queryParams,
@@ -30,10 +55,10 @@ class ApiClient {
       uri = uri.replace(queryParameters: queryParams);
     }
     
-    return http.get(
+    return _handleRequest(() async => http.get(
       uri,
-      headers: await _getHeaders(includeAuth: includeAuth),
-    );
+      headers: await getHeaders(includeAuth: includeAuth),
+    ));
   }
 
   static Future<http.Response> post(
@@ -41,11 +66,11 @@ class ApiClient {
     Map<String, dynamic> body, {
     bool includeAuth = true,
   }) async {
-    return http.post(
+    return _handleRequest(() async => http.post(
       Uri.parse('$baseUrl$endpoint'),
-      headers: await _getHeaders(includeAuth: includeAuth),
+      headers: await getHeaders(includeAuth: includeAuth),
       body: jsonEncode(body),
-    );
+    ));
   }
 
   static Future<http.Response> put(
@@ -53,20 +78,32 @@ class ApiClient {
     Map<String, dynamic> body, {
     bool includeAuth = true,
   }) async {
-    return http.put(
+    return _handleRequest(() async => http.put(
       Uri.parse('$baseUrl$endpoint'),
-      headers: await _getHeaders(includeAuth: includeAuth),
+      headers: await getHeaders(includeAuth: includeAuth),
       body: jsonEncode(body),
-    );
+    ));
+  }
+
+  static Future<http.Response> patch(
+    String endpoint,
+    Map<String, dynamic> body, {
+    bool includeAuth = true,
+  }) async {
+    return _handleRequest(() async => http.patch(
+      Uri.parse('$baseUrl$endpoint'),
+      headers: await getHeaders(includeAuth: includeAuth),
+      body: jsonEncode(body),
+    ));
   }
 
   static Future<http.Response> delete(
     String endpoint, {
     bool includeAuth = true,
   }) async {
-    return http.delete(
+    return _handleRequest(() async => http.delete(
       Uri.parse('$baseUrl$endpoint'),
-      headers: await _getHeaders(includeAuth: includeAuth),
-    );
+      headers: await getHeaders(includeAuth: includeAuth),
+    ));
   }
 }

@@ -48,7 +48,6 @@ def find_matches(db: Session, preference: TripPreference, user_id: int):
         })
 
     matches.sort(key=lambda x: x["score"], reverse=True)
-
     return matches
 
 

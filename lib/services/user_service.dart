@@ -18,12 +18,14 @@ class UserService {
     String? country,
     String? city,
     String? lifestyleTags,
+    String? bio,
   }) async {
     final body = <String, dynamic>{};
     if (name != null) body['name'] = name;
     if (country != null) body['country'] = country;
     if (city != null) body['city'] = city;
     if (lifestyleTags != null) body['lifestyle_tags'] = lifestyleTags;
+    if (bio != null) body['bio'] = bio;
 
     final response = await ApiClient.put('/users/me', body);
     

@@ -50,5 +50,15 @@
     	<key>NSAllowsArbitraryLoads</key>
     	<true/>
 	</dict>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Swapscout needs access to your photo library to let you upload photos of your home.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Swapscout needs access to your camera to let you take photos of your home.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Swapscout needs access to your microphone when recording video tours.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Swapscout needs access to your location to find homes nearby using the Radius Search.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Swapscout needs to use your location even when in the background to send you proximity alerts.</string>
 </dict>
 </plist>

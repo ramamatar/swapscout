@@ -1,11 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import '../widgets/amenity.dart';
 import '../services/user_service.dart';
 import '../services/home_service.dart';
 import '../services/auth_service.dart';
+import '../services/token_storage.dart';
 import 'notifications.dart';
 import 'matches_messages.dart';
 import 'login.dart';
+import 'map_location_picker.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import '../services/api_client.dart';
 
 class ProfileHomeListingPage extends StatefulWidget {
   const ProfileHomeListingPage({super.key});
@@ -24,6 +32,7 @@ class _ProfileHomeListingPageState extends State<ProfileHomeListingPage> {
   String _location = '';
   String _email = '';
   String _phone = '';
+  String _bio = '';
   
   // Homes list
   List<Map<String, dynamic>> _homes = [];
@@ -33,6 +42,7 @@ class _ProfileHomeListingPageState extends State<ProfileHomeListingPage> {
   late TextEditingController _locationController;
   late TextEditingController _emailController;
   late TextEditingController _phoneController;
+  late TextEditingController _bioController;
 
   @override
   void initState() {
@@ -41,6 +51,7 @@ class _ProfileHomeListingPageState extends State<ProfileHomeListingPage> {
     _locationController = TextEditingController();
     _emailController = TextEditingController();
     _phoneController = TextEditingController();
+    _bioController = TextEditingController();
     _loadData();
   }
 
@@ -58,11 +69,13 @@ class _ProfileHomeListingPageState extends State<ProfileHomeListingPage> {
             ? '$city, $country'
             : city.isNotEmpty ? city : country;
         _phone = ''; // Phone not in API yet
+        _bio = profile['bio'] ?? '';
         
         _nameController.text = _name;
         _locationController.text = _location;
         _emailController.text = _email;
         _phoneController.text = _phone;
+        _bioController.text = _bio;
       });
 
       // Load user's homes
@@ -92,6 +105,7 @@ class _ProfileHomeListingPageState extends State<ProfileHomeListingPage> {
     _locationController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
+    _bioController.dispose();
     super.dispose();
   }
 
@@ -102,6 +116,7 @@ class _ProfileHomeListingPageState extends State<ProfileHomeListingPage> {
       _locationController.text = _location;
       _emailController.text = _email;
       _phoneController.text = _phone;
+      _bioController.text = _bio;
     });
   }
 
@@ -114,11 +129,11 @@ class _ProfileHomeListingPageState extends State<ProfileHomeListingPage> {
       final city = locationParts.isNotEmpty ? locationParts[0].trim() : '';
       final country = locationParts.length > 1 ? locationParts[1].trim() : '';
 
-      // Update user profile
       await UserService.updateMyProfile(
         name: _nameController.text.trim(),
         city: city,
         country: country,
+        bio: _bioController.text.trim(),
       );
 
       // Reload data
@@ -157,6 +172,7 @@ class _ProfileHomeListingPageState extends State<ProfileHomeListingPage> {
       _locationController.text = _location;
       _emailController.text = _email;
       _phoneController.text = _phone;
+      _bioController.text = _bio;
     });
   }
 
@@ -406,6 +422,17 @@ class _ProfileHomeListingPageState extends State<ProfileHomeListingPage> {
                                     ),
                                   ),
                                 ],
+                                if (_bio.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _bio,
+                                    style: const TextStyle(
+                                      color: Colors.black87,
+                                      fontSize: 14,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ],
                               ],
                             )
                           else
@@ -435,6 +462,30 @@ class _ProfileHomeListingPageState extends State<ProfileHomeListingPage> {
                                   decoration: InputDecoration(
                                     labelText: 'Location (City, Country)',
                                     prefixIcon: const Icon(Icons.location_on_outlined),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: const BorderSide(color: Color(0xFFE2E2E2)),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: const BorderSide(color: Color(0xFFF28C64), width: 2),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                TextField(
+                                  controller: _bioController,
+                                  maxLines: 4,
+                                  decoration: InputDecoration(
+                                    labelText: 'About Me (Bio)',
+                                    alignLabelWithHint: true,
+                                    prefixIcon: const Padding(
+                                      padding: EdgeInsets.only(bottom: 50.0), // visual adjustment
+                                      child: Icon(Icons.edit_note),
+                                    ),
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(12),
                                     ),
@@ -760,6 +811,11 @@ class _AddEditHomePageState extends State<_AddEditHomePage> {
   final Set<String> _selectedAmenities = {};
   bool _isHidden = false;
   bool _isLoading = false;
+  bool _isDetectingAmenities = false;
+  double? _latitude;
+  double? _longitude;
+  XFile? _selectedImage;
+  final ImagePicker _picker = ImagePicker();
 
   final List<String> _environmentOptions = ['Beach', 'City', 'Mountain', 'Countryside', 'Lakeside'];
   final List<String> _propertyTypeOptions = ['Apartment', 'House', 'Villa', 'Cottage', 'Cabin'];
@@ -789,6 +845,9 @@ class _AddEditHomePageState extends State<_AddEditHomePage> {
       }
       _availableFromController.text = widget.home!['available_from'] ?? '';
       _availableToController.text = widget.home!['available_to'] ?? '';
+      
+      _latitude = widget.home!['latitude'] as double?;
+      _longitude = widget.home!['longitude'] as double?;
 
       // Ensure selected values exist in options
       if (_selectedEnvironment != null && !_environmentOptions.contains(_selectedEnvironment)) {
@@ -816,6 +875,97 @@ class _AddEditHomePageState extends State<_AddEditHomePage> {
     super.dispose();
   }
 
+  Future<void> _detectAmenitiesFromImage() async {
+    if (_selectedImage == null) return;
+    setState(() => _isDetectingAmenities = true);
+    try {
+      final token = await TokenStorage.getToken();
+      final request = http.MultipartRequest('POST', Uri.parse('${ApiClient.baseUrl}/homes/detect-amenities'));
+      request.headers['Authorization'] = 'Bearer $token';
+      request.files.add(await http.MultipartFile.fromPath('image', _selectedImage!.path));
+      
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final List<dynamic> detected = data['amenities'] ?? [];
+        if (detected.isNotEmpty) {
+           setState(() {
+              for (var amenity in detected) {
+                 final String amStr = amenity.toString();
+                 if (!_amenityOptions.contains(amStr)) {
+                    _amenityOptions.insert(0, amStr);
+                 }
+                 _selectedAmenities.add(amStr);
+              }
+           });
+           if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Detected ${detected.length} amenities via Gemini AI!'), backgroundColor: Colors.green));
+           }
+        } else {
+           if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No amenities visibly detected by AI.')));
+           }
+        }
+      } else {
+        throw Exception(jsonDecode(response.body)['detail'] ?? 'Failed to detect');
+      }
+    } catch (e) {
+       if (mounted) {
+         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to detect: $e'), backgroundColor: Colors.red));
+       }
+    } finally {
+      if (mounted) {
+         setState(() => _isDetectingAmenities = false);
+      }
+    }
+  }
+
+  Future<void> _pickImage() async {
+    try {
+      final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+      if (image != null) {
+        setState(() {
+          _selectedImage = image;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick image: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _selectAvailableDateRange() async {
+    FocusScope.of(context).unfocus();
+    final DateTimeRange? picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFFF28C64),
+              onPrimary: Colors.white,
+              onSurface: Colors.black87,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() {
+        _availableFromController.text = picked.start.toString().split(' ')[0];
+        _availableToController.text = picked.end.toString().split(' ')[0];
+      });
+    }
+  }
+
   Future<void> _saveHome() async {
     if (!_formKey.currentState!.validate()) return;
     
@@ -838,6 +988,12 @@ class _AddEditHomePageState extends State<_AddEditHomePage> {
       );
       return;
     }
+    if (_latitude == null || _longitude == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please drop a pin on the map')),
+      );
+      return;
+    }
 
     setState(() => _isLoading = true);
 
@@ -845,8 +1001,9 @@ class _AddEditHomePageState extends State<_AddEditHomePage> {
       final capacity = int.tryParse(_capacityController.text) ?? 0;
       final amenitiesStr = _selectedAmenities.join(', ');
       
+      Map<String, dynamic> result;
       if (widget.home != null) {
-        await HomeService.updateHome(
+        result = await HomeService.updateHome(
           homeId: widget.home!['id'] as int,
           title: _titleController.text.trim(),
           description: _descriptionController.text.trim(),
@@ -861,7 +1018,7 @@ class _AddEditHomePageState extends State<_AddEditHomePage> {
           isHidden: _isHidden,
         );
       } else {
-        await HomeService.createHome(
+        result = await HomeService.createHome(
           title: _titleController.text.trim(),
           description: _descriptionController.text.trim(),
           city: _cityController.text.trim(),
@@ -872,7 +1029,14 @@ class _AddEditHomePageState extends State<_AddEditHomePage> {
           propertyType: _selectedPropertyType!,
           availableFrom: _availableFromController.text.trim(),
           availableTo: _availableToController.text.trim(),
+          latitude: _latitude,
+          longitude: _longitude,
         );
+      }
+      
+      if (_selectedImage != null) {
+        final homeId = result['id'] as int;
+        await HomeService.uploadHomeImage(homeId, _selectedImage!.path);
       }
 
       if (!mounted) return;
@@ -909,6 +1073,49 @@ class _AddEditHomePageState extends State<_AddEditHomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Image Picker Section
+              Center(
+                child: GestureDetector(
+                  onTap: _pickImage,
+                  child: Container(
+                    width: double.infinity,
+                    height: 200,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey[400]!),
+                    ),
+                    child: _selectedImage != null
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.file(
+                              File(_selectedImage!.path),
+                              fit: BoxFit.cover,
+                            ),
+                          )
+                        : (widget.home != null && widget.home!['images'] != null && (widget.home!['images'] as List).isNotEmpty)
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.network(
+                                  ApiClient.getFullImageUrl(widget.home!['images'][0]),
+                                  fit: BoxFit.cover,
+                                ),
+                              )
+                            : Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.add_a_photo, size: 48, color: Colors.grey[600]),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Add Home Photo',
+                                    style: TextStyle(color: Colors.grey[600]),
+                                  ),
+                                ],
+                              ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: _titleController,
                 decoration: const InputDecoration(
@@ -969,6 +1176,42 @@ class _AddEditHomePageState extends State<_AddEditHomePage> {
               ),
               const SizedBox(height: 16),
               
+              // Location Map Picker
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => MapLocationPickerPage(
+                          initialLocation: _latitude != null && _longitude != null 
+                              ? LatLng(_latitude!, _longitude!) 
+                              : null,
+                          addressQuery: "${_cityController.text.trim()}, ${_countryController.text.trim()}",
+                        ),
+                      ),
+                    );
+                    if (result != null) {
+                      setState(() {
+                        _latitude = (result as LatLng).latitude;
+                        _longitude = result.longitude;
+                      });
+                    }
+                  },
+                  icon: const Icon(Icons.map),
+                  label: Text(_latitude == null ? 'Drop Location Pin on Map *' : 'Location Pin Set!'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _latitude == null ? Colors.grey[200] : const Color(0xFFF28C64),
+                    foregroundColor: _latitude == null ? Colors.black87 : Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    elevation: 0,
+                    side: _latitude == null ? BorderSide(color: Colors.grey[400]!) : null,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              
               // Environment Selection
               DropdownButtonFormField<String>(
                 value: _selectedEnvironment,
@@ -1004,9 +1247,22 @@ class _AddEditHomePageState extends State<_AddEditHomePage> {
               const SizedBox(height: 16),
               
               // Amenities Selection
-              const Text(
-                'Amenities * (Select at least one)',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Amenities * (Select at least one)',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                  ),
+                  if (_selectedImage != null)
+                    TextButton.icon(
+                      onPressed: _isDetectingAmenities ? null : _detectAmenitiesFromImage,
+                      icon: _isDetectingAmenities 
+                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.auto_awesome, color: Colors.blue),
+                      label: const Text('Auto-Detect', style: TextStyle(color: Colors.blue)),
+                    )
+                ],
               ),
               const SizedBox(height: 8),
               Container(
@@ -1074,6 +1330,8 @@ class _AddEditHomePageState extends State<_AddEditHomePage> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _availableFromController,
+                readOnly: true,
+                onTap: _selectAvailableDateRange,
                 decoration: const InputDecoration(
                   labelText: 'Available From *',
                   hintText: 'YYYY-MM-DD',
@@ -1084,6 +1342,8 @@ class _AddEditHomePageState extends State<_AddEditHomePage> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _availableToController,
+                readOnly: true,
+                onTap: _selectAvailableDateRange,
                 decoration: const InputDecoration(
                   labelText: 'Available To *',
                   hintText: 'YYYY-MM-DD',

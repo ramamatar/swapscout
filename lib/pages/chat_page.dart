@@ -1,6 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 import '../services/message_service.dart';
 import '../services/user_service.dart';
+import '../services/api_client.dart';
+import '../services/token_storage.dart';
 
 class ChatPage extends StatefulWidget {
   final int otherUserId;
@@ -22,12 +26,60 @@ class _ChatPageState extends State<ChatPage> {
   bool _isLoading = true;
   List<Map<String, dynamic>> _messages = [];
   int? _currentUserId;
+  WebSocketChannel? _channel;
 
   @override
   void initState() {
     super.initState();
     _loadCurrentUser();
-    _loadMessages();
+    _loadMessages().then((_) => _connectWebSocket());
+  }
+
+  @override
+  void dispose() {
+    _channel?.sink.close();
+    _messageController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _connectWebSocket() async {
+    try {
+      final token = await TokenStorage.getToken();
+      if (token == null) return;
+      
+      final wsUrl = ApiClient.baseUrl.replaceFirst('http', 'ws');
+      _channel = WebSocketChannel.connect(
+        Uri.parse('$wsUrl/messages/ws?token=$token'),
+      );
+      
+      _channel!.stream.listen(
+        (message) {
+          try {
+            final data = jsonDecode(message as String) as Map<String, dynamic>;
+            if (mounted && data.containsKey('id')) {
+              setState(() {
+                final msgId = data['id'];
+                if (!_messages.any((m) => m['id'] == msgId)) {
+                   _messages.add(data);
+                }
+              });
+              _scrollToBottom();
+            } else if (mounted && data.containsKey('error')) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(data['error'])),
+              );
+            }
+          } catch (e) {
+            debugPrint('Message decode error: $e');
+          }
+        },
+        onError: (error) => debugPrint('WebSocket error: $error'),
+        onDone: () => debugPrint('WebSocket closed'),
+      );
+    } catch (e) {
+      debugPrint('WebSocket connection error: $e');
+    }
   }
 
   Future<void> _loadCurrentUser() async {
@@ -78,11 +130,19 @@ class _ChatPageState extends State<ChatPage> {
 
     _messageController.clear();
     try {
-      await MessageService.sendMessage(
-        receiverId: widget.otherUserId,
-        content: text,
-      );
-      await _loadMessages(); // Reload to see new message
+      if (_channel != null) {
+        final payload = jsonEncode({
+          'receiver_id': widget.otherUserId,
+          'content': text,
+        });
+        _channel!.sink.add(payload);
+      } else {
+        await MessageService.sendMessage(
+          receiverId: widget.otherUserId,
+          content: text,
+        );
+        await _loadMessages(); // Reload to see new message
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

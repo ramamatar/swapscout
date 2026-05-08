@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'api_client.dart';
+import 'package:http/http.dart' as http;
 
 class HomeService {
   /// Get user's homes
@@ -25,6 +26,8 @@ class HomeService {
     required String propertyType,
     required String availableFrom,
     required String availableTo,
+    double? latitude,
+    double? longitude,
   }) async {
     final body = {
       'title': title,
@@ -38,6 +41,9 @@ class HomeService {
       'available_from': availableFrom,
       'available_to': availableTo,
     };
+    
+    if (latitude != null) body['latitude'] = latitude;
+    if (longitude != null) body['longitude'] = longitude;
 
     final response = await ApiClient.post('/homes/', body);
     
@@ -147,6 +153,53 @@ class HomeService {
       return jsonDecode(response.body) as List<dynamic>;
     } else {
       throw Exception('Failed to search homes: ${response.body}');
+    }
+  }
+
+  /// Search homes by proximity (Radius Search)
+  static Future<List<dynamic>> searchHomesNearby({
+    required double targetLat,
+    required double targetLng,
+    double radiusKm = 10.0,
+  }) async {
+    final queryParams = <String, String>{
+      'target_lat': targetLat.toString(),
+      'target_lng': targetLng.toString(),
+      'radius_km': radiusKm.toString(),
+    };
+
+    final response = await ApiClient.get(
+      '/homes/search/nearby',
+      queryParams: queryParams,
+      includeAuth: false,
+    );
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as List<dynamic>;
+    } else {
+      throw Exception('Failed to perform radius search: ${response.body}');
+    }
+  }
+
+  /// Upload an image for a home
+  static Future<Map<String, dynamic>> uploadHomeImage(int homeId, String imagePath) async {
+    final baseUrl = ApiClient.baseUrl;
+    final url = Uri.parse('$baseUrl/homes/$homeId/images');
+    
+    final request = http.MultipartRequest('POST', url);
+    final headers = await ApiClient.getHeaders();
+    headers.remove('Content-Type'); // Essential for multipart requests
+    request.headers.addAll(headers);
+    
+    request.files.add(await http.MultipartFile.fromPath('file', imagePath));
+    
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+    
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } else {
+      throw Exception('Failed to upload image: ${response.body}');
     }
   }
 }

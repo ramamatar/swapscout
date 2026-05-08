@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../widgets/amenity.dart';
 import '../services/match_service.dart';
 import '../services/favorite_service.dart';
@@ -22,8 +23,10 @@ class MatchesResultsPage extends StatefulWidget {
 class _MatchesResultsPageState extends State<MatchesResultsPage> {
   String _sortBy = 'Match Score';
   bool _isLoading = true;
+  bool _showMap = false;
   List<dynamic> _matches = [];
   final Set<int> _favoriteHomeIds = {};
+  GoogleMapController? _mapController;
 
   @override
   void initState() {
@@ -123,6 +126,73 @@ class _MatchesResultsPageState extends State<MatchesResultsPage> {
         );
       }
     }
+  }
+
+  void _calculateBounds() {
+    if (_mapController == null || _matches.isEmpty) return;
+
+    // Filter matches that strictly have valid latitude and longitude mapped
+    final validMatches = _matches.where((m) => m['latitude'] != null && m['longitude'] != null).toList();
+    if (validMatches.isEmpty) return;
+
+    double minLat = validMatches[0]['latitude'];
+    double minLng = validMatches[0]['longitude'];
+    double maxLat = minLat;
+    double maxLng = minLng;
+
+    for (var match in validMatches) {
+      final lat = match['latitude'] as double;
+      final lng = match['longitude'] as double;
+
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+    }
+
+    final bounds = LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
+
+    // Padding ensures properties don't stick to the absolute edges
+    _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 50.0));
+  }
+
+  Set<Marker> _buildMapMarkers() {
+    final markers = <Marker>{};
+
+    for (var i = 0; i < _matches.length; i++) {
+      final match = _matches[i];
+      if (match['latitude'] != null && match['longitude'] != null) {
+        markers.add(
+          Marker(
+            markerId: MarkerId('match_$i'),
+            position: LatLng(match['latitude'] as double, match['longitude'] as double),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+            // Important: We intentionally omit InfoWindow. 
+            // Instead we natively intercept the tap vector to trigger our gorgeous modal bottom sheet widget.
+            onTap: () {
+              _showBottomSheetPreview(match, context);
+            },
+          ),
+        );
+      }
+    }
+    return markers;
+  }
+
+  void _showBottomSheetPreview(Map<String, dynamic> match, BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext context) {
+        return Container(
+          margin: const EdgeInsets.all(12),
+          child: _buildMatchCard(match, context),
+        );
+      },
+    );
   }
 
   @override
@@ -321,7 +391,7 @@ class _MatchesResultsPageState extends State<MatchesResultsPage> {
             ),
             const Divider(height: 1),
 
-            // Matches List
+            // Matches List or interactive Map Frame
             Expanded(
               child: _matches.isEmpty
                   ? Center(
@@ -352,24 +422,60 @@ class _MatchesResultsPageState extends State<MatchesResultsPage> {
                         ],
                       ),
                     )
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _matches.length,
-                      itemBuilder: (context, index) {
-                        final match = _matches[index];
-                        return _buildMatchCard(match, context);
-                      },
-                    ),
+                  : _showMap
+                      ? GoogleMap(
+                          onMapCreated: (controller) {
+                            _mapController = controller;
+                            // Dynamically jump precisely to encase returned matches perfectly.
+                            Future.delayed(const Duration(milliseconds: 300), () {
+                               _calculateBounds();
+                            });
+                          },
+                          initialCameraPosition: const CameraPosition(
+                            target: LatLng(20.0, 0.0), // Arbitrary center, bounded via _calculateBounds natively once initialized
+                            zoom: 2.0,
+                          ),
+                          markers: _buildMapMarkers(),
+                          myLocationEnabled: true,
+                          myLocationButtonEnabled: true,
+                          zoomControlsEnabled: false, // Cleaner UI
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _matches.length,
+                          itemBuilder: (context, index) {
+                            final match = _matches[index];
+                            return _buildMatchCard(match, context);
+                          },
+                        ),
             ),
           ],
         ),
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          setState(() {
+            _showMap = !_showMap;
+          });
+        },
+        backgroundColor: Colors.black87,
+        icon: Icon(
+          _showMap ? Icons.list : Icons.map,
+          color: Colors.white,
+        ),
+        label: Text(
+          _showMap ? 'List' : 'Map',
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 
   Widget _buildMatchCard(Map<String, dynamic> match, BuildContext context) {
     final homeId = match['home_id'] as int? ?? match['id'] as int? ?? 0;
-    final score = (match['score'] as num?)?.toDouble() ?? 0.0;
+    final score = (match['compatibility_score'] as num?)?.toDouble() ?? (match['score'] as num?)?.toDouble() ?? 0.0;
+    final explanation = match['match_explanation'] as String?;
     final city = match['city'] ?? 'Unknown';
     final country = match['country'] ?? '';
     final location = country.isNotEmpty ? '$city, $country' : city;
@@ -416,20 +522,24 @@ class _MatchesResultsPageState extends State<MatchesResultsPage> {
               Positioned(
                 top: 12,
                 right: 12,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFF28C64), Color(0xFFFF6B9D)],
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
-                        blurRadius: 4,
-                        offset: const Offset(0, 2),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: score >= 90
+                            ? [Colors.green.shade400, Colors.green.shade600]
+                            : score >= 70
+                                ? [Colors.orange.shade400, Colors.orange.shade600]
+                                : [const Color(0xFFF28C64), const Color(0xFFFF6B9D)],
                       ),
-                    ],
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -448,6 +558,38 @@ class _MatchesResultsPageState extends State<MatchesResultsPage> {
                   ),
                 ),
               ),
+              // Match Explanation Text
+              if (explanation != null)
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.65),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.auto_awesome, color: Colors.amber, size: 16),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            explanation,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              height: 1.3,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               // Favorite Button
               Positioned(
                 top: 12,

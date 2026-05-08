@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 from database import get_db
-from models import Match, Message, Favorite, Home
+from models import Match, Message, Favorite, Home, Notification
 from auth_middleware import get_current_user
 from models import User
 
@@ -16,6 +16,21 @@ def get_notifications(
 ):
     notifications = []
     
+    # 0. Get the new Swap Requests/Accepted notifications
+    db_notifications = db.query(Notification).filter(
+        Notification.user_id == current_user.id
+    ).order_by(Notification.created_at.desc()).limit(15).all()
+    
+    for note in db_notifications:
+        notifications.append({
+            "id": note.id,
+            "type": note.type,
+            "title": "Update",
+            "message": note.message,
+            "created_at": note.created_at.isoformat() if note.created_at else None,
+            "read": note.is_read
+        })
+        
     # Get pending incoming matches
     incoming_matches = db.query(Match).filter(
         Match.user_b_id == current_user.id,

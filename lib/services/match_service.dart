@@ -14,6 +14,16 @@ class MatchService {
     }
   }
 
+  /// Get AI Compatibility Score for a specific home
+  static Future<Map<String, dynamic>> getAICompatibility(int homeId) async {
+    final response = await ApiClient.get('/matches/compatibility/$homeId');
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } else {
+      throw Exception('Failed to get compatibility: ${response.body}');
+    }
+  }
+
   /// Get matches for current user
   static Future<List<dynamic>> getMatches() async {
     final response = await ApiClient.get('/matches/');

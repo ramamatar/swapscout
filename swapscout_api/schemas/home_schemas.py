@@ -1,7 +1,19 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import date
 
+
+class HomeBookingCreate(BaseModel):
+    start_date: date
+    end_date: date
+
+class BookingSchema(BaseModel):
+    id: int
+    home_id: int
+    start_date: date
+    end_date: date
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class HomeCreate(BaseModel):
     title: str
@@ -14,6 +26,8 @@ class HomeCreate(BaseModel):
     property_type: str  # Required: Apartment, House, Villa, Cottage, Cabin
     available_from: date
     available_to: date
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class HomeUpdate(BaseModel):
@@ -28,6 +42,8 @@ class HomeUpdate(BaseModel):
     available_from: Optional[date] = None
     available_to: Optional[date] = None
     is_hidden: Optional[bool] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class HomeResponse(BaseModel):
@@ -43,10 +59,16 @@ class HomeResponse(BaseModel):
     is_hidden: bool
     available_from: date
     available_to: date
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    distance: Optional[float] = None
+    images: list[str] = []
     owner_id: int
+    bookings: list[BookingSchema] = []
+    total_reviews: int = 0
+    average_rating: float = 0.0
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 
@@ -59,3 +81,6 @@ class HomeSearchQuery:
     amenities: Optional[str] = None 
     date_from: Optional[date] = None
     date_to: Optional[date] = None
+
+class DetectedAmenities(BaseModel):
+    amenities: list[str]

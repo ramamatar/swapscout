@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/insights_service.dart';
+import '../state/app_state.dart';
 
 class InsightsPage extends StatefulWidget {
   const InsightsPage({super.key});
@@ -24,6 +25,7 @@ class _InsightsPageState extends State<InsightsPage> {
       final insights = await InsightsService.getInsights();
       setState(() {
         _insights = insights;
+        AppSharedState.pendingRequestsCount.value = insights['pending_swaps'] ?? 0;
       });
     } catch (e) {
       if (mounted) {
@@ -68,7 +70,6 @@ class _InsightsPageState extends State<InsightsPage> {
 
     final totalSwaps = _insights['total_swaps'] ?? 0;
     final acceptedSwaps = _insights['accepted_swaps'] ?? 0;
-    final pendingSwaps = _insights['pending_swaps'] ?? 0;
     final favoritesCount = _insights['favorites_count'] ?? 0;
     final messagesCount = _insights['messages_count'] ?? 0;
     final matches = _insights['matches'] as List<dynamic>? ?? [];
@@ -132,7 +133,12 @@ class _InsightsPageState extends State<InsightsPage> {
                       children: [
                         _buildStatItem(totalSwaps.toString(), 'Total Swaps', Icons.swap_horiz),
                         _buildStatItem(acceptedSwaps.toString(), 'Confirmed', Icons.check_circle),
-                        _buildStatItem(pendingSwaps.toString(), 'Pending', Icons.pending),
+                        ValueListenableBuilder<int>(
+                          valueListenable: AppSharedState.pendingRequestsCount,
+                          builder: (context, value, child) {
+                            return _buildStatItem(value.toString(), 'Pending', Icons.pending);
+                          },
+                        ),
                       ],
                     ),
                   ],
@@ -256,7 +262,7 @@ class _InsightsPageState extends State<InsightsPage> {
                         Icons.message,
                         'New Message',
                         content.toString().length > 50 
-                            ? content.toString().substring(0, 50) + '...'
+                            ? '${content.toString().substring(0, 50)}...'
                             : content.toString(),
                         _formatTimestamp(timestamp.toString()),
                         Colors.blue,
@@ -359,7 +365,7 @@ class _InsightsPageState extends State<InsightsPage> {
         Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
+            color: color.withAlpha(25),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Icon(icon, color: color, size: 20),
@@ -393,7 +399,7 @@ class _InsightsPageState extends State<InsightsPage> {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: color.withOpacity(0.2),
+            color: color.withAlpha(51),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Icon(
@@ -416,7 +422,7 @@ class _InsightsPageState extends State<InsightsPage> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
+            color: color.withAlpha(25),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Text(
@@ -447,7 +453,7 @@ class _InsightsPageState extends State<InsightsPage> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withAlpha(25),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: color, size: 20),

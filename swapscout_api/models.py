@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Text, Date, ARRAY, ForeignKey, TIMESTAMP, Float, Boolean, UniqueConstraint, DateTime
+from sqlalchemy import Column, Integer, String, Text, Date, ARRAY, ForeignKey, TIMESTAMP, Float, Boolean, UniqueConstraint, DateTime, Enum, LargeBinary
+import enum
 from sqlalchemy.sql import func
 from database import Base
 from sqlalchemy.orm import relationship
@@ -25,22 +26,26 @@ class User(Base):
     back_populates="user",
     cascade="all, delete-orphan"
 )
+    notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
     sent_messages = relationship(
     "Message",
     foreign_keys="Message.sender_id",
-    cascade="all, delete-orphan"
+    cascade="all, delete-orphan",
+    back_populates="sender"
 )
 
     received_messages = relationship(
     "Message",
     foreign_keys="Message.receiver_id",
-    cascade="all, delete-orphan"
+    cascade="all, delete-orphan",
+    back_populates="receiver"
 )
 
     name = Column(String, nullable=True)
     country = Column(String, nullable=True)
     city = Column(String, nullable=True)
     lifestyle_tags = Column(String, nullable=True)  # simple comma-separated for now
+    bio = Column(Text, nullable=True)
 
 class Home(Base):
     __tablename__ = "homes"
@@ -59,18 +64,45 @@ class Home(Base):
     environment = Column(String, nullable=True)  # Beach, City, Mountain, Countryside, etc.
     property_type = Column(String, nullable=True)  # Apartment, House, Villa, Cottage, Cabin, etc.
     is_hidden = Column(Boolean, default=False, nullable=False)  # Hide house if not available
+    
+    total_reviews = Column(Integer, default=0, nullable=False)
+    average_rating = Column(Float, default=0.0, nullable=False)
+
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
 
     available_from = Column(Date, nullable=False)  # ISO date string
     available_to = Column(Date, nullable=False)
 
+    images = Column(ARRAY(String), default=[])
+
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     owner = relationship("User", back_populates="homes")
-    favorites = relationship("Favorite", cascade="all, delete-orphan")
+    favorites = relationship("Favorite", cascade="all, delete-orphan", back_populates="home")
+    bookings = relationship("HomeBooking", back_populates="home", cascade="all, delete-orphan")
 
 
+class HomeImage(Base):
+    __tablename__ = "home_images"
+
+    id = Column(Integer, primary_key=True, index=True)
+    home_id = Column(Integer, ForeignKey("homes.id", ondelete="CASCADE"), nullable=False)
+    image_data = Column(LargeBinary, nullable=False)
+    content_type = Column(String, nullable=False)
+
+    home = relationship("Home")
 
 
+class HomeBooking(Base):
+    __tablename__ = "home_bookings"
 
+    id = Column(Integer, primary_key=True, index=True)
+    home_id = Column(Integer, ForeignKey("homes.id", ondelete="CASCADE"), nullable=False)
+    
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    
+    home = relationship("Home", back_populates="bookings")
 class TripPreference(Base):
     __tablename__ = "trip_preferences"
 
@@ -103,6 +135,10 @@ class Match(Base):
         default="pending"  # pending | accepted | rejected
     )
 
+    compatibility_score = Column(Integer, nullable=True)
+    match_explanation = Column(Text, nullable=True)
+
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
@@ -125,8 +161,8 @@ class Message(Base):
     content = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    sender = relationship("User", foreign_keys=[sender_id])
-    receiver = relationship("User", foreign_keys=[receiver_id])
+    sender = relationship("User", foreign_keys=[sender_id], back_populates="sent_messages")
+    receiver = relationship("User", foreign_keys=[receiver_id], back_populates="received_messages")
 
 class Favorite(Base):
     __tablename__ = "favorites"
@@ -136,7 +172,7 @@ class Favorite(Base):
     home_id = Column(Integer, ForeignKey("homes.id", ondelete="CASCADE"))
 
     user = relationship("User", back_populates="favorites")
-    home = relationship("Home")
+    home = relationship("Home", back_populates="favorites")
 
     __table_args__ = (
         UniqueConstraint("user_id", "home_id", name="unique_user_home_favorite"),)
@@ -153,3 +189,67 @@ class Activity(Base):
     related_user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=True)
     related_home_id = Column(Integer, ForeignKey("homes.home_id", ondelete="CASCADE"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    message = Column(Text, nullable=False)
+    type = Column(String(50), nullable=False)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="notifications")
+
+class SwapRequestStatus(str, enum.Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+    CANCELED = "canceled"
+    COMPLETED = "completed"
+
+class SwapRequest(Base):
+    __tablename__ = "swap_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    
+    requester_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    host_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    
+    requester_home_id = Column(Integer, ForeignKey("homes.id", ondelete="CASCADE"), nullable=False)
+    host_home_id = Column(Integer, ForeignKey("homes.id", ondelete="CASCADE"), nullable=False)
+
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    intro_message = Column(Text, nullable=True)
+    
+    status = Column(Enum(SwapRequestStatus), default=SwapRequestStatus.PENDING, nullable=False)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    requester = relationship("User", foreign_keys=[requester_id])
+    host = relationship("User", foreign_keys=[host_id])
+    
+    requester_home = relationship("Home", foreign_keys=[requester_home_id])
+    host_home = relationship("Home", foreign_keys=[host_home_id])
+
+class Review(Base):
+    __tablename__ = "reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    swap_request_id = Column(Integer, ForeignKey("swap_requests.id", ondelete="CASCADE"), nullable=False)
+    reviewer_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    reviewee_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    home_id = Column(Integer, ForeignKey("homes.id", ondelete="CASCADE"), nullable=False)
+    
+    rating = Column(Integer, nullable=False)
+    comment = Column(Text, nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("swap_request_id", "reviewer_id", name="unique_review_per_swap"),
+    )

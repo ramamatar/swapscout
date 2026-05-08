@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr
 from typing import Optional, List
 
 
@@ -9,9 +9,9 @@ class UserResponse(BaseModel):
     country: Optional[str]
     city: Optional[str]
     lifestyle_tags: Optional[str]
+    bio: Optional[str]
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserUpdate(BaseModel):
@@ -19,3 +19,4 @@ class UserUpdate(BaseModel):
     country: Optional[str] = None
     city: Optional[str] = None
     lifestyle_tags: Optional[str] = None
+    bio: Optional[str] = None

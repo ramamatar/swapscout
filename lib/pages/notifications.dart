@@ -46,8 +46,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
   IconData _getNotificationIcon(String type) {
     switch (type) {
+      case 'swap_request':
       case 'match_request':
         return Icons.swap_horiz;
+      case 'swap_accepted':
       case 'match_accepted':
         return Icons.check_circle;
       case 'message':
@@ -59,8 +61,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
   Color _getNotificationColor(String type) {
     switch (type) {
+      case 'swap_request':
       case 'match_request':
         return const Color(0xFFF28C64);
+      case 'swap_accepted':
       case 'match_accepted':
         return Colors.green;
       case 'message':
@@ -370,7 +374,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                                     ],
                                   ),
                                 ),
-                              if (type == 'match_accepted')
+                              if (type == 'match_accepted' || type == 'swap_accepted')
                                 Padding(
                                   padding: const EdgeInsets.only(top: 12),
                                   child: SizedBox(

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'trip_preferences.dart';
-import '../widgets/simple_field.dart';
 
 class DreamTripPage extends StatefulWidget {
   const DreamTripPage({super.key});
@@ -146,8 +145,34 @@ class _DreamTripPageState extends State<DreamTripPage> {
                       const SizedBox(height: 8),
                       TextField(
                         controller: _datesController,
+                        readOnly: true,
+                        onTap: () async {
+                          FocusScope.of(context).unfocus();
+                          final DateTimeRange? picked = await showDateRangePicker(
+                            context: context,
+                            firstDate: DateTime.now(),
+                            lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+                            builder: (context, child) {
+                              return Theme(
+                                data: Theme.of(context).copyWith(
+                                  colorScheme: const ColorScheme.light(
+                                    primary: Color(0xFFF28C64),
+                                    onPrimary: Colors.white,
+                                    onSurface: Colors.black87,
+                                  ),
+                                ),
+                                child: child!,
+                              );
+                            },
+                          );
+                          if (picked != null) {
+                            final String startFormatted = picked.start.toString().split(' ')[0];
+                            final String endFormatted = picked.end.toString().split(' ')[0];
+                            _datesController.text = "$startFormatted to $endFormatted";
+                          }
+                        },
                         decoration: InputDecoration(
-                          hintText: 'Available dates (YYYY-MM-DD to YYYY-MM-DD)',
+                          hintText: 'Select travel dates',
                           prefixIcon: const Icon(Icons.calendar_today_outlined),
                           filled: true,
                           fillColor: Colors.white,

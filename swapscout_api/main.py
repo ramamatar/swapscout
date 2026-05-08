@@ -14,6 +14,10 @@ from endpoints import (
     activity_routes,
     notification_routes,
     ai_routes,
+    swap_request_routes,
+    image_routes,
+    websocket_routes,
+    review_routes,
 )
 
 # Database
@@ -49,7 +53,10 @@ app.include_router(favorite_routes.router)
 app.include_router(activity_routes.router)
 app.include_router(notification_routes.router)
 app.include_router(ai_routes.router)
-
+app.include_router(swap_request_routes.router)
+app.include_router(image_routes.router)
+app.include_router(websocket_routes.router)
+app.include_router(review_routes.router)
 
 @app.get("/")
 def root():

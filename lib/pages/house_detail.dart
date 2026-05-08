@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import '../services/home_service.dart';
 import '../services/match_service.dart';
+import '../services/swap_request_service.dart';
 import '../widgets/amenity.dart';
 import 'messages.dart';
+import '../services/api_client.dart';
+import '../services/review_service.dart';
 
 class HouseDetailPage extends StatefulWidget {
   final int homeId;
@@ -15,11 +18,11 @@ class HouseDetailPage extends StatefulWidget {
 
 class _HouseDetailPageState extends State<HouseDetailPage> {
   bool _isLoading = true;
-  bool _isRequestingMatch = false;
   Map<String, dynamic>? _home;
   Map<String, dynamic>? _owner;
   bool _hasMatchRequest = false;
   String? _matchStatus;
+  List<dynamic> _reviews = [];
 
   @override
   void initState() {
@@ -32,6 +35,13 @@ class _HouseDetailPageState extends State<HouseDetailPage> {
     try {
       final home = await HomeService.getHome(widget.homeId);
       final owner = await HomeService.getHomeOwner(widget.homeId);
+      
+      try {
+        final reviews = await ReviewService.getHomeReviews(widget.homeId);
+        if (mounted) setState(() => _reviews = reviews);
+      } catch (e) {
+        // Continue silently if reviews fail
+      }
       
       setState(() {
         _home = home;
@@ -57,36 +67,180 @@ class _HouseDetailPageState extends State<HouseDetailPage> {
     }
   }
 
-  Future<void> _requestMatch() async {
-    setState(() => _isRequestingMatch = true);
-    try {
-      await MatchService.createMatchRequest(widget.homeId);
-      if (mounted) {
-        setState(() {
-          _hasMatchRequest = true;
-          _matchStatus = 'pending';
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Match request sent! The owner will be notified.'),
-            backgroundColor: Color(0xFFF28C64),
-          ),
+  Future<void> _showSwapRequestSheet(BuildContext context) async {
+    final TextEditingController datesController = TextEditingController();
+    final TextEditingController introController = TextEditingController();
+    bool isSubmitting = false;
+    List<dynamic> myHomes = [];
+    int? selectedHomeId;
+    bool isLoadingHomes = true;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            
+            // Load homes once natively inside the builder bounds
+            if (isLoadingHomes && myHomes.isEmpty) {
+              HomeService.getMyHomes().then((homes) {
+                if (mounted) {
+                  setSheetState(() {
+                    myHomes = homes;
+                    if (myHomes.isNotEmpty) {
+                      selectedHomeId = myHomes[0]['id'];
+                    }
+                    isLoadingHomes = false;
+                  });
+                }
+              }).catchError((e) {
+                 setSheetState(() {
+                    isLoadingHomes = false;
+                 });
+              });
+            }
+
+            return Container(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+              ),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Request Swap',
+                        style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 16),
+                      if (isLoadingHomes)
+                        const Center(child: CircularProgressIndicator())
+                      else if (myHomes.isEmpty)
+                        const Text('You must physically list a home natively on SwapScout before requesting an exchange!')
+                      else ...[
+                        DropdownButtonFormField<int>(
+                          value: selectedHomeId,
+                          decoration: const InputDecoration(
+                            labelText: 'Which home are you offering?',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: myHomes.map<DropdownMenuItem<int>>((home) {
+                            return DropdownMenuItem<int>(
+                              value: home['id'],
+                              child: Text(home['title'].length > 30 ? home['title'].substring(0, 30) + '...' : home['title']),
+                            );
+                          }).toList(),
+                          onChanged: (val) {
+                            setSheetState(() => selectedHomeId = val);
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: datesController,
+                          readOnly: true,
+                          onTap: () async {
+                            final DateTimeRange? picked = await showDateRangePicker(
+                              context: context,
+                              firstDate: DateTime.now(),
+                              lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+                            );
+                            if (picked != null) {
+                              setSheetState(() {
+                                datesController.text = "${picked.start.toString().split(' ')[0]} to ${picked.end.toString().split(' ')[0]}";
+                              });
+                            }
+                          },
+                          decoration: InputDecoration(
+                            labelText: 'Proposed Travel Dates',
+                            hintText: 'Select your exact availability frame',
+                            prefixIcon: const Icon(Icons.calendar_today),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: introController,
+                          maxLines: 3,
+                          decoration: InputDecoration(
+                            labelText: 'Message to Host',
+                            hintText: "Hi! We'd love to swap homes with you...",
+                            alignLabelWithHint: true,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: isSubmitting ? null : () async {
+                              if (datesController.text.isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select valid swap dates')));
+                                return;
+                              }
+                              final dates = datesController.text.split(' to ');
+                              if (dates.length != 2) return;
+
+                              setSheetState(() => isSubmitting = true);
+                              try {
+                                await SwapRequestService.createSwapRequest(
+                                  hostId: _owner!['id'],
+                                  requesterHomeId: selectedHomeId!,
+                                  hostHomeId: widget.homeId,
+                                  startDate: dates[0],
+                                  endDate: dates[1],
+                                  introMessage: introController.text.trim(),
+                                );
+                                if (mounted) {
+                                  Navigator.pop(context); // close sheet natively cleanly
+                                  setState(() {
+                                    _hasMatchRequest = true; 
+                                    _matchStatus = 'pending';
+                                  });
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Swap Request submitted efficiently!'), backgroundColor: Colors.green),
+                                  );
+                                }
+                              } catch (e) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+                                  );
+                                }
+                                setSheetState(() => isSubmitting = false);
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFF28C64),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(24),
+                              ),
+                            ),
+                            child: isSubmitting
+                                ? const SizedBox(height:20, width:20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                : const Text('Send Request', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isRequestingMatch = false);
-      }
-    }
+      },
+    );
   }
 
   @override
@@ -123,6 +277,7 @@ class _HouseDetailPageState extends State<HouseDetailPage> {
     final propertyType = _home!['property_type'] as String? ?? '';
     final availableFrom = _home!['available_from'] ?? '';
     final availableTo = _home!['available_to'] ?? '';
+    final bookings = _home!['bookings'] as List? ?? [];
     
     final ownerName = _owner!['name'] ?? 'Unknown';
     final ownerCity = _owner!['city'] ?? '';
@@ -148,15 +303,31 @@ class _HouseDetailPageState extends State<HouseDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Image placeholder
-            Container(
-              height: 250,
-              width: double.infinity,
-              color: Colors.grey[300],
-              child: const Center(
-                child: Icon(Icons.home, size: 64, color: Colors.grey),
+            // Image
+            if (_home!['images'] != null && (_home!['images'] as List).isNotEmpty)
+              Container(
+                height: 250,
+                width: double.infinity,
+                child: Image.network(
+                  ApiClient.getFullImageUrl(_home!['images'][0]),
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    color: Colors.grey[300],
+                    child: const Center(
+                      child: Icon(Icons.broken_image, size: 64, color: Colors.grey),
+                    ),
+                  ),
+                ),
+              )
+            else
+              Container(
+                height: 250,
+                width: double.infinity,
+                color: Colors.grey[300],
+                child: const Center(
+                  child: Icon(Icons.home, size: 64, color: Colors.grey),
+                ),
               ),
-            ),
 
             // Content
             Padding(
@@ -185,6 +356,205 @@ class _HouseDetailPageState extends State<HouseDetailPage> {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.star, size: 20, color: Colors.amber),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${_home!['average_rating'] != null && _home!['average_rating'] > 0 ? _home!['average_rating'] : 'New'} (${_home!['total_reviews'] ?? 0} reviews)',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // AI Compatibility FutureBuilder
+                  FutureBuilder<Map<String, dynamic>>(
+                    future: MatchService.getAICompatibility(widget.homeId),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.blue.shade100),
+                          ),
+                          child: const Row(
+                            children: [
+                              SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue),
+                              ),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Gemini AI is analyzing your compatibility...',
+                                  style: TextStyle(color: Colors.blue, fontWeight: FontWeight.w500),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+                      
+                      if (snapshot.hasError || !snapshot.hasData) {
+                        return const SizedBox.shrink(); // Hide silently if it fails
+                      }
+
+                      final aiData = snapshot.data!;
+                      final scoreNum = aiData['compatibility_score'];
+                      final score = scoreNum != null ? (scoreNum as num).toDouble() : 0.0;
+                      final explanation = aiData['match_explanation'] as String?;
+                      
+                      if (explanation == null || explanation.isEmpty) {
+                        return const SizedBox.shrink();
+                      }
+
+                      // Determine color based on score
+                      Color badgeColor = Colors.grey;
+                      if (score >= 90) {
+                        badgeColor = Colors.green;
+                      } else if (score >= 70) {
+                        badgeColor = Colors.orange;
+                      } else {
+                        badgeColor = Colors.red;
+                      }
+
+                      return InkWell(
+                        onTap: () {
+                          showModalBottomSheet(
+                            context: context,
+                            isScrollControlled: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (context) => Container(
+                              padding: const EdgeInsets.all(24),
+                              decoration: const BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Center(
+                                    child: Container(
+                                      width: 40,
+                                      height: 4,
+                                      margin: const EdgeInsets.only(bottom: 24),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey[300],
+                                        borderRadius: BorderRadius.circular(2),
+                                      ),
+                                    ),
+                                  ),
+                                  Row(
+                                    children: [
+                                      Icon(Icons.auto_awesome, color: badgeColor, size: 28),
+                                      const SizedBox(width: 12),
+                                      Text(
+                                        '${score.toInt()}% AI Match',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: badgeColor,
+                                          fontSize: 24,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 20),
+                                  const Text(
+                                    'Gemini Compatibility Analysis',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    explanation,
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      color: Colors.black87,
+                                      height: 1.5,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 32),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: ElevatedButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFF28C64),
+                                        padding: const EdgeInsets.symmetric(vertical: 16),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(16),
+                                        ),
+                                      ),
+                                      child: const Text('Close', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [badgeColor.withOpacity(0.1), Colors.white],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: badgeColor.withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.auto_awesome, color: badgeColor, size: 20),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '${score.toInt()}% AI Match',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: badgeColor,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Row(
+                                children: [
+                                  Text(
+                                    'Tap for explanation',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Icon(Icons.arrow_forward_ios, size: 12, color: Colors.grey[600]),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(height: 24),
 
@@ -269,12 +639,31 @@ class _HouseDetailPageState extends State<HouseDetailPage> {
                   if (availableFrom.isNotEmpty && availableTo.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Text(
-                      '$availableFrom to $availableTo',
+                      'General Availability: $availableFrom to $availableTo',
                       style: const TextStyle(
-                        fontSize: 13,
-                        color: Colors.black54,
+                        fontSize: 14,
+                        color: Colors.black87,
                       ),
                     ),
+                  ],
+                  if (bookings.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Unavailable Dates:',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.redAccent,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    ...bookings.map((b) => Text(
+                          '• ${b['start_date']} to ${b['end_date']}',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Colors.black54,
+                          ),
+                        )),
                   ],
                   const SizedBox(height: 24),
 
@@ -414,7 +803,7 @@ class _HouseDetailPageState extends State<HouseDetailPage> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: _isRequestingMatch ? null : _requestMatch,
+                        onPressed: () => _showSwapRequestSheet(context),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFFF28C64),
                           foregroundColor: Colors.white,
@@ -423,24 +812,79 @@ class _HouseDetailPageState extends State<HouseDetailPage> {
                             borderRadius: BorderRadius.circular(24),
                           ),
                         ),
-                        child: _isRequestingMatch
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                ),
-                              )
-                            : const Text(
-                                'Request Match',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
+                        child: const Text(
+                          'Request Swap',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
                     ),
+                  
+                  // Reviews Section
+                  if (_reviews.isNotEmpty) ...[
+                    const SizedBox(height: 32),
+                    const Text('Reviews', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 16),
+                    ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _reviews.length,
+                      itemBuilder: (context, index) {
+                        final rev = _reviews[index];
+                        final rating = rev['rating'] ?? 5;
+                        final String dateStr = rev['created_at'] ?? '';
+                        final formattedDate = dateStr.length > 10 ? dateStr.substring(0, 10) : dateStr;
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 16),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey[200]!)
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  CircleAvatar(
+                                    backgroundColor: const Color(0xFFF28C64),
+                                    child: Text(
+                                      (rev['reviewer_name'] ?? 'U').toString().substring(0, 1).toUpperCase(),
+                                      style: const TextStyle(color: Colors.white),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(rev['reviewer_name'] ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                        Text(formattedDate, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                                      ],
+                                    ),
+                                  ),
+                                  Row(
+                                    children: List.generate(5, (starIndex) => Icon(
+                                      starIndex < rating ? Icons.star : Icons.star_border,
+                                      size: 16, color: Colors.amber,
+                                    )),
+                                  )
+                                ],
+                              ),
+                              if (rev['comment'] != null && rev['comment'].toString().isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                Text(rev['comment'], style: const TextStyle(color: Colors.black87)),
+                              ],
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+
                   const SizedBox(height: 32),
                 ],
               ),

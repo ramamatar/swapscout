@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from datetime import date, datetime
 
@@ -10,19 +10,19 @@ class MatchResponse(BaseModel):
     user_a_id: int
     user_b_id: int
     status: str
+    compatibility_score: Optional[int] = None
+    match_explanation: Optional[str] = None
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class MatchUserDetail(BaseModel):
     id: int
     name: Optional[str]
     email: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class MatchResponseWithDetails(MatchResponse):
     other_user: MatchUserDetail

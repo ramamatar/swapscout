@@ -137,14 +137,14 @@ class _MessagesPageState extends State<MessagesPage> {
                 )
               : Row(
                   children: [
-                    // Conversations list
-                    Container(
-                      width: 300,
-                      decoration: BoxDecoration(
-                        border: Border(
-                          right: BorderSide(color: Colors.grey[300]!),
+                    Expanded(
+                      flex: 2,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          border: Border(
+                            right: BorderSide(color: Colors.grey[300]!),
+                          ),
                         ),
-                      ),
                       child: ListView.builder(
                         itemCount: _conversations.length,
                         itemBuilder: (context, index) {
@@ -155,7 +155,7 @@ class _MessagesPageState extends State<MessagesPage> {
                           return ListTile(
                             selected: isSelected,
                             selectedTileColor: const Color(0xFFFDE5DA),
-                            title: Text('User $userId'),
+                            title: Text(conv['user_name']?.toString() ?? 'User $userId', style: const TextStyle(fontWeight: FontWeight.bold)),
                             subtitle: Text(
                               conv['last_message']?.toString() ?? '',
                               maxLines: 1,
@@ -166,9 +166,11 @@ class _MessagesPageState extends State<MessagesPage> {
                         },
                       ),
                     ),
+                  ),
                     
                     // Messages view
                     Expanded(
+                      flex: 5,
                       child: _selectedUserId == null || _currentMessages == null
                           ? Center(
                               child: Text(

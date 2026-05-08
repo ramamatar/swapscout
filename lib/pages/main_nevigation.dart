@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 
 // ignore: unused_import
 import 'dreamtrip.dart';
-import 'trip_preferences.dart';
 import 'profilehome.dart';
 import 'manual_search.dart';
 import 'insights.dart';
+import 'trips_dashboard.dart';
 import '../services/notification_service.dart';
+import '../services/websocket_service.dart';
+import '../state/app_state.dart';
+import 'dart:async';
 
 class MainNavigationPage extends StatefulWidget {
   final int initialIndex;
@@ -23,12 +26,67 @@ class MainNavigationPage extends StatefulWidget {
 class _MainNavigationPageState extends State<MainNavigationPage> {
   late int _currentIndex;
   bool _hasUnreadNotifications = false;
+  late StreamSubscription _wsSubscription;
   
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
     _checkNotifications();
+    
+    _initWebSockets();
+  }
+
+  void _initWebSockets() {
+    WebSocketService().init();
+    _wsSubscription = WebSocketService().messageStream.listen(_onWebSocketMessage);
+  }
+
+  void _onWebSocketMessage(Map<String, dynamic> data) {
+    if (data['type'] == 'new_request') {
+      if (mounted) {
+        AppSharedState.pendingRequestsCount.value++;
+        setState(() {
+          _hasUnreadNotifications = true;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.notifications_active, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    data['message'] ?? 'You have a new swap request!',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: const Color(0xFFF28C64),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            margin: const EdgeInsets.only(bottom: 20, left: 10, right: 10),
+            action: SnackBarAction(
+              label: 'REVIEW',
+              textColor: Colors.white,
+              onPressed: () {
+                setState(() {
+                  _currentIndex = 2; // Jump to Trips Tab!
+                });
+              },
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _wsSubscription.cancel();
+    super.dispose();
   }
 
   Future<void> _checkNotifications() async {
@@ -47,6 +105,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
   final List<Widget> _pages = [
     const DreamTripPage(), 
     const ManualSearchPage(), // Search tab
+    const TripsDashboardPage(), // Trips tab
     const ProfileHomeListingPage(), // Profile tab
     const InsightsPage(), // Insights tab
   ];
@@ -81,7 +140,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
           BottomNavigationBarItem(
             icon: Stack(
               children: [
-                const Icon(Icons.person_outline),
+                const Icon(Icons.airplanemode_active),
                 if (_hasUnreadNotifications)
                   Positioned(
                     right: 0,
@@ -102,7 +161,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
             ),
             activeIcon: Stack(
               children: [
-                const Icon(Icons.person),
+                const Icon(Icons.airplanemode_active),
                 if (_hasUnreadNotifications)
                   Positioned(
                     right: 0,
@@ -121,6 +180,11 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
                   ),
               ],
             ),
+            label: 'Trips',
+          ),
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline),
+            activeIcon: Icon(Icons.person),
             label: 'Profile',
           ),
           const BottomNavigationBarItem(
