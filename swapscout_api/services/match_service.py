@@ -31,23 +31,13 @@ def find_matches(db: Session, preference: TripPreference, user_id: int):
         ):
             continue
 
-        score = 0.0
-
-        if home.amenities and preference.lifestyle_tags:
-            overlap = set(home.amenities).intersection(
-                set(preference.lifestyle_tags)
-            )
-            score += len(overlap) * 10
-
         matches.append({
             "home_id": home.id,
             "title": home.title,
             "country": home.country,
-            "city": home.city,
-            "score": score
+            "city": home.city
         })
 
-    matches.sort(key=lambda x: x["score"], reverse=True)
     return matches
 
 

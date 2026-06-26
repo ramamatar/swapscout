@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import exc
+from typing import Optional
 
 from database import get_db
 from models import User, SwapRequest, SwapRequestStatus, Review, Home
@@ -9,7 +10,7 @@ from schemas.review_schemas import ReviewCreate, ReviewResponse
 
 router = APIRouter(prefix="/reviews", tags=["Reviews"])
 
-@router.post("/", response_model=ReviewResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ReviewResponse, status_code=status.HTTP_201_CREATED)
 def submit_review(
     review_data: ReviewCreate,
     db: Session = Depends(get_db),
@@ -94,7 +95,7 @@ def get_home_reviews(
         
     return out
 
-@router.get("/swap-request/{swap_request_id}/my-review", response_model=ReviewResponse)
+@router.get("/swap-request/{swap_request_id}/my-review", response_model=Optional[ReviewResponse])
 def get_my_review_for_swap(
     swap_request_id: int,
     db: Session = Depends(get_db),
@@ -106,7 +107,7 @@ def get_my_review_for_swap(
     ).first()
     
     if not review:
-        raise HTTPException(status_code=404, detail="Review not found.")
+        return None
         
     rout = ReviewResponse.model_validate(review)
     rout.reviewer_name = "You"

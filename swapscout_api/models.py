@@ -135,10 +135,6 @@ class Match(Base):
         default="pending"  # pending | accepted | rejected
     )
 
-    compatibility_score = Column(Integer, nullable=True)
-    match_explanation = Column(Text, nullable=True)
-
-
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
@@ -182,12 +178,12 @@ class Activity(Base):
     __tablename__ = "activities"
 
     activity_id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     activity_type = Column(String(50), nullable=False)  # match_found, message, swap_confirmed, etc.
     title = Column(String(200), nullable=False)
     description = Column(Text)
-    related_user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=True)
-    related_home_id = Column(Integer, ForeignKey("homes.home_id", ondelete="CASCADE"), nullable=True)
+    related_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    related_home_id = Column(Integer, ForeignKey("homes.id", ondelete="CASCADE"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
 

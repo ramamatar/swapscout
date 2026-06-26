@@ -11,8 +11,8 @@ class MatchService {
     } else {
       final errorData = jsonDecode(response.body);
       throw Exception(errorData['detail'] ?? 'Failed to create match request');
-    }
   }
+}
 
   /// Get AI Compatibility Score for a specific home
   static Future<Map<String, dynamic>> getAICompatibility(int homeId) async {
@@ -21,6 +21,35 @@ class MatchService {
       return jsonDecode(response.body) as Map<String, dynamic>;
     } else {
       throw Exception('Failed to get compatibility: ${response.body}');
+    }
+  }
+
+  /// Get AI Compatibility Score using explicit search parameters
+  static Future<Map<String, dynamic>> getSearchCompatibility({
+    required int homeId,
+    int? requestedGuestCount,
+    String? checkIn,
+    String? checkOut,
+    String? amenities,
+    String? environment,
+    String? propertyType,
+  }) async {
+    final params = <String, String>{};
+    if (requestedGuestCount != null) params['requested_guest_count'] = requestedGuestCount.toString();
+    if (checkIn != null && checkIn.isNotEmpty) params['check_in'] = checkIn;
+    if (checkOut != null && checkOut.isNotEmpty) params['check_out'] = checkOut;
+    if (amenities != null && amenities.isNotEmpty) params['amenities'] = amenities;
+    if (environment != null && environment.isNotEmpty) params['environment'] = environment;
+    if (propertyType != null && propertyType.isNotEmpty) params['property_type'] = propertyType;
+
+    final queryString = params.entries.map((e) => '${e.key}=${Uri.encodeComponent(e.value)}').join('&');
+    final url = '/matches/compatibility/$homeId/search${queryString.isNotEmpty ? '?$queryString' : ''}';
+
+    final response = await ApiClient.get(url);
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } else {
+      throw Exception('Failed to get search compatibility: ${response.body}');
     }
   }
 

@@ -10,8 +10,6 @@ class MatchResponse(BaseModel):
     user_a_id: int
     user_b_id: int
     status: str
-    compatibility_score: Optional[int] = None
-    match_explanation: Optional[str] = None
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
 
@@ -32,4 +30,3 @@ class HomeMatch(BaseModel):
     title: str
     country: str
     city: str
-    score: float

@@ -35,5 +35,16 @@ class UserService {
       throw Exception('Failed to update profile: ${response.body}');
     }
   }
+
+  /// Get Public Profile
+  static Future<Map<String, dynamic>> getPublicProfile(int userId) async {
+    final response = await ApiClient.get('/users/$userId/public');
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } else {
+      throw Exception('Failed to load public profile: ${response.body}');
+    }
+  }
 }
 

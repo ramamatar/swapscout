@@ -7,3 +7,4 @@ from . import activity_routes
 from . import preference_routes
 from . import favorite_routes
 from . import notification_routes
+from . import review_routes

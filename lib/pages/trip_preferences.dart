@@ -2,16 +2,17 @@ import 'package:flutter/material.dart';
 import '../widgets/selectable_chip.dart';
 import 'matches_results.dart';
 import '../services/preference_service.dart';
-import '../services/ai_service.dart';
 
 class TripPreferencesPage extends StatefulWidget {
   final String? homeLocation;
   final String? dates;
+  final int? guests;
 
   const TripPreferencesPage({
     super.key,
     this.homeLocation,
     this.dates,
+    this.guests,
   });
 
   @override
@@ -102,20 +103,23 @@ class _TripPreferencesPageState extends State<TripPreferencesPage> with Automati
         }
       }
 
+      // Parse dates from dreamtrip
+      String? startDate;
+      String? endDate;
+      if (widget.dates != null && widget.dates!.contains(' to ')) {
+        final dateParts = widget.dates!.split(' to ');
+        startDate = dateParts[0].trim();
+        endDate = dateParts[1].trim();
+      }
+
       // Save preferences with proper format
       await PreferenceService.setMyPreferences(
         preferredCity: preferredCity,
         preferredCountry: preferredCountry,
+        startDate: startDate,
+        endDate: endDate,
+        guests: widget.guests,
         lifestyleTags: allTags.isNotEmpty ? allTags : null,
-      );
-
-      // Get AI Suggestion (Top 3)
-      final moodDescription = moodDescriptionController.text;
-      final aiSuggestions = await AiService.getDestinationSuggestion(
-        moodDescription,
-        {...selectedMoods, ...selectedEnvironments},
-        homeLocation: widget.homeLocation,
-        dates: widget.dates,
       );
 
       if (!mounted) return;
@@ -124,7 +128,6 @@ class _TripPreferencesPageState extends State<TripPreferencesPage> with Automati
       await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => MatchesResultsPage(
-            aiSuggestions: aiSuggestions,
             userDates: widget.dates,
           ),
         ),

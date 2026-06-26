@@ -7,6 +7,7 @@ from schemas.home_schemas import HomeCreate, HomeUpdate, HomeResponse, HomeBooki
 import google.generativeai as genai
 import json
 import io
+import re
 from PIL import Image
 import os
 from services.home_service import (
@@ -36,9 +37,6 @@ async def detect_amenities(
     image: UploadFile = File(...),
     current_user: User = Depends(get_current_user)
 ):
-    if not image.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Uploaded file must be a valid image.")
-        
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(status_code=500, detail="Gemini API Key missing from environment.")
@@ -46,12 +44,17 @@ async def detect_amenities(
     try:
         # Read the file and convert to PIL Image
         contents = await image.read()
-        pil_image = Image.open(io.BytesIO(contents))
-        
+        try:
+            pil_image = Image.open(io.BytesIO(contents))
+            pil_image.verify()
+            pil_image = Image.open(io.BytesIO(contents))
+        except Exception:
+            raise HTTPException(status_code=400, detail="Uploaded file must be a valid image.")
+            
         # We explicitly configure inline to ensure thread safety or fallback
         genai.configure(api_key=api_key)
         
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         
         system_prompt = (
             "You are a highly skilled real estate image analyzer. Examine this photo of a home. "
@@ -64,20 +67,22 @@ async def detect_amenities(
         response = model.generate_content([system_prompt, pil_image])
         
         cleaned_text = response.text.strip()
-        if cleaned_text.startswith("```json"):
-            cleaned_text = cleaned_text[7:]
-        if cleaned_text.endswith("```"):
-            cleaned_text = cleaned_text[:-3]
-        cleaned_text = cleaned_text.strip()
+        print(f"Gemini raw text output: {cleaned_text}")
         
-        data = json.loads(cleaned_text)
-        amenities = data.get("amenities", [])
+        json_match = re.search(r'\{.*\}', cleaned_text, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(0)
+            data = json.loads(json_str)
+            amenities = data.get("amenities", [])
+        else:
+            amenities = []
         
         return DetectedAmenities(amenities=amenities)
         
     except Exception as e:
         print(f"Gemini AI Error: {e}")
-        return DetectedAmenities(amenities=[])
+        # Re-raise the error so the frontend sees what went wrong instead of silently failing
+        raise HTTPException(status_code=500, detail=f"AI Detection Failed: {str(e)}")
 
 @router.get("/mine", response_model=list[HomeResponse])
 def my_homes(

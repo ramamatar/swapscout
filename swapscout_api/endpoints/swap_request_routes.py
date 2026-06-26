@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from typing import List
+from datetime import date
 
 from database import get_db
 from models import User, SwapRequest, SwapRequestStatus, HomeBooking, Notification
@@ -80,6 +81,19 @@ def get_my_swap_requests(
             SwapRequest.host_id == current_user.id
         )
     ).order_by(SwapRequest.created_at.desc()).all()
+    
+    # Auto-advance state machine for accepted requests whose end date has passed
+    today = date.today()
+    updated = False
+    for req in requests:
+        if req.status == SwapRequestStatus.ACCEPTED:
+            # If the end_date is strictly before today, it is completed
+            if req.end_date < today:
+                req.status = SwapRequestStatus.COMPLETED
+                updated = True
+                
+    if updated:
+        db.commit()
     
     return requests
 

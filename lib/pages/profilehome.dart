@@ -1214,7 +1214,7 @@ class _AddEditHomePageState extends State<_AddEditHomePage> {
               
               // Environment Selection
               DropdownButtonFormField<String>(
-                value: _selectedEnvironment,
+                initialValue: _selectedEnvironment,
                 decoration: const InputDecoration(
                   labelText: 'Environment *',
                   border: OutlineInputBorder(),
@@ -1231,7 +1231,7 @@ class _AddEditHomePageState extends State<_AddEditHomePage> {
               
               // Property Type Selection
               DropdownButtonFormField<String>(
-                value: _selectedPropertyType,
+                initialValue: _selectedPropertyType,
                 decoration: const InputDecoration(
                   labelText: 'Property Type *',
                   border: OutlineInputBorder(),
@@ -1250,9 +1250,11 @@ class _AddEditHomePageState extends State<_AddEditHomePage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Amenities * (Select at least one)',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                  const Expanded(
+                    child: Text(
+                      'Amenities * (Select at least one)',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                    ),
                   ),
                   if (_selectedImage != null)
                     TextButton.icon(
@@ -1312,7 +1314,7 @@ class _AddEditHomePageState extends State<_AddEditHomePage> {
                     onChanged: (value) {
                       setState(() => _isHidden = value);
                     },
-                    activeColor: const Color(0xFFF28C64),
+                    activeThumbColor: const Color(0xFFF28C64),
                   ),
                 ],
               ),

@@ -432,7 +432,7 @@ class _ManualSearchPageState extends State<ManualSearchPage> {
                   SwitchListTile(
                     title: const Text('Use Radius Search (Nearby Homes)', style: TextStyle(fontWeight: FontWeight.w500)),
                     value: _useRadiusSearch,
-                    activeColor: const Color(0xFFF28C64),
+                    activeThumbColor: const Color(0xFFF28C64),
                     contentPadding: EdgeInsets.zero,
                     onChanged: (bool value) async {
                       if (value && (_cityController.text.trim().isNotEmpty || _countryController.text.trim().isNotEmpty)) {
@@ -902,7 +902,17 @@ class _ManualSearchPageState extends State<ManualSearchPage> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => HouseDetailPage(homeId: homeId),
+            builder: (context) => HouseDetailPage(
+              homeId: homeId,
+              searchParams: {
+                'guests': int.tryParse(_guestsController.text.trim()),
+                'checkIn': _checkInController.text.trim(),
+                'checkOut': _checkOutController.text.trim(),
+                'amenities': selectedAmenities.isNotEmpty ? selectedAmenities.join(',') : null,
+                'environment': selectedEnvironments.isNotEmpty ? selectedEnvironments.first : null,
+                'propertyType': selectedTypes.isNotEmpty ? selectedTypes.first : null,
+              },
+            ),
           ),
         );
       },

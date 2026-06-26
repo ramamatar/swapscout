@@ -7,12 +7,10 @@ import '../services/home_service.dart';
 import 'house_detail.dart';
 
 class MatchesResultsPage extends StatefulWidget {
-  final List<Map<String, dynamic>>? aiSuggestions;
   final String? userDates;
   
   const MatchesResultsPage({
     super.key,
-    this.aiSuggestions,
     this.userDates,
   });
 
@@ -59,18 +57,7 @@ class _MatchesResultsPageState extends State<MatchesResultsPage> {
       // Filter matches based on AI suggestions and dates
       var filteredMatches = List<Map<String, dynamic>>.from(enrichedMatches);
 
-      if (widget.aiSuggestions != null && widget.aiSuggestions!.isNotEmpty) {
-        final suggestedCities = widget.aiSuggestions!
-            .map((s) => s['city'].toString().toLowerCase())
-            .toSet();
-        
-        if (suggestedCities.isNotEmpty) {
-          filteredMatches = filteredMatches.where((m) {
-            final city = m['city']?.toString().toLowerCase();
-            return city != null && suggestedCities.contains(city);
-          }).toList();
-        }
-      }
+
 
       // TODO: Implement date filtering if needed based on widget.userDates
       
@@ -249,86 +236,8 @@ class _MatchesResultsPageState extends State<MatchesResultsPage> {
       body: SafeArea(
         child: Column(
           children: [
-            // AI Suggestion Card
-            if (widget.aiSuggestions != null && widget.aiSuggestions!.isNotEmpty)
-              Container(
-                height: 160,
-                margin: const EdgeInsets.only(top: 16, bottom: 8),
-                child: PageView.builder(
-                  controller: PageController(viewportFraction: 0.9),
-                  itemCount: widget.aiSuggestions!.length,
-                  itemBuilder: (context, index) {
-                    final suggestion = widget.aiSuggestions![index];
-                    return Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 6),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFFF28C64), Color(0xFFFF6B9D)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFFF28C64).withOpacity(0.3),
-                            blurRadius: 8,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.auto_awesome, color: Colors.white, size: 20),
-                              const SizedBox(width: 8),
-                              Text(
-                                'AI Top Pick #${index + 1} For You',
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.9),
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 12,
-                                  letterSpacing: 1,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            '${suggestion['city']}, ${suggestion['country']}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 18, // Slightly smaller to fit
-                              fontWeight: FontWeight.bold,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 6),
-                          Expanded(
-                            child: Text(
-                              suggestion['matchReason'] ?? '',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                height: 1.3,
-                              ),
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
-
             // Results Summary
-            if (widget.aiSuggestions == null || widget.aiSuggestions!.isEmpty) const Divider(height: 1), 
-            // Only show divider if no AI card to avoid double spacing look
+            const Divider(height: 1),
             Container(
               color: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -367,10 +276,6 @@ class _MatchesResultsPageState extends State<MatchesResultsPage> {
                       });
                     },
                     itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'Match Score',
-                        child: Text('Match Score'),
-                      ),
                       const PopupMenuItem(
                         value: 'Distance',
                         child: Text('Distance'),
@@ -474,8 +379,6 @@ class _MatchesResultsPageState extends State<MatchesResultsPage> {
 
   Widget _buildMatchCard(Map<String, dynamic> match, BuildContext context) {
     final homeId = match['home_id'] as int? ?? match['id'] as int? ?? 0;
-    final score = (match['compatibility_score'] as num?)?.toDouble() ?? (match['score'] as num?)?.toDouble() ?? 0.0;
-    final explanation = match['match_explanation'] as String?;
     final city = match['city'] ?? 'Unknown';
     final country = match['country'] ?? '';
     final location = country.isNotEmpty ? '$city, $country' : city;
@@ -487,6 +390,7 @@ class _MatchesResultsPageState extends State<MatchesResultsPage> {
         ? amenitiesStr.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList()
         : <String>[];
     final isFavorite = _favoriteHomeIds.contains(homeId);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
@@ -494,7 +398,7 @@ class _MatchesResultsPageState extends State<MatchesResultsPage> {
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -518,78 +422,6 @@ class _MatchesResultsPageState extends State<MatchesResultsPage> {
                   ),
                 ),
               ),
-              // Match Score Badge
-              Positioned(
-                top: 12,
-                right: 12,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: score >= 90
-                            ? [Colors.green.shade400, Colors.green.shade600]
-                            : score >= 70
-                                ? [Colors.orange.shade400, Colors.orange.shade600]
-                                : [const Color(0xFFF28C64), const Color(0xFFFF6B9D)],
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.star, color: Colors.white, size: 16),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${score.toInt()}% Match',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              // Match Explanation Text
-              if (explanation != null)
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.65),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(Icons.auto_awesome, color: Colors.amber, size: 16),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            explanation,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              height: 1.3,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
               // Favorite Button
               Positioned(
                 top: 12,
@@ -599,7 +431,7 @@ class _MatchesResultsPageState extends State<MatchesResultsPage> {
                   child: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.9),
+                      color: Colors.white.withValues(alpha: 0.9),
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
@@ -652,32 +484,6 @@ class _MatchesResultsPageState extends State<MatchesResultsPage> {
                             style: const TextStyle(
                               fontSize: 13,
                               color: Colors.black54,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFDE5DA),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.star,
-                            size: 14,
-                            color: Color(0xFFF28C64),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            score.toStringAsFixed(1),
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFFF28C64),
                             ),
                           ),
                         ],

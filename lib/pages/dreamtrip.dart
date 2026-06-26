@@ -11,11 +11,13 @@ class DreamTripPage extends StatefulWidget {
 class _DreamTripPageState extends State<DreamTripPage> {
   final TextEditingController _locationController = TextEditingController();
   final TextEditingController _datesController = TextEditingController();
+  final TextEditingController _guestsController = TextEditingController(text: '2');
 
   @override
   void dispose() {
     _locationController.dispose();
     _datesController.dispose();
+    _guestsController.dispose();
     super.dispose();
   }
 
@@ -135,6 +137,41 @@ class _DreamTripPageState extends State<DreamTripPage> {
                       ),
                       const SizedBox(height: 24),
                       const Text(
+                        'Number of Guests',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _guestsController,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          hintText: 'e.g., 2',
+                          prefixIcon: const Icon(Icons.people_outline),
+                          filled: true,
+                          fillColor: Colors.white,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Color(0xFFE2E2E2)),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Color(0xFFE2E2E2)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFF28C64),
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      const Text(
                         'Available Travel Dates',
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
@@ -218,6 +255,7 @@ class _DreamTripPageState extends State<DreamTripPage> {
                         builder: (_) => TripPreferencesPage(
                           homeLocation: _locationController.text.trim(),
                           dates: _datesController.text.trim().isNotEmpty ? _datesController.text.trim() : null,
+                          guests: int.tryParse(_guestsController.text.trim()) ?? 2,
                         ),
                       ),
                     );

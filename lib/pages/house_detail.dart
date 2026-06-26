@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import '../services/home_service.dart';
 import '../services/match_service.dart';
 import '../services/swap_request_service.dart';
 import '../widgets/amenity.dart';
+import '../widgets/compatibility_score.dart';
 import 'messages.dart';
 import '../services/api_client.dart';
 import '../services/review_service.dart';
 
 class HouseDetailPage extends StatefulWidget {
   final int homeId;
+  final Map<String, dynamic>? searchParams;
 
-  const HouseDetailPage({super.key, required this.homeId});
+  const HouseDetailPage({super.key, required this.homeId, this.searchParams});
 
   @override
   State<HouseDetailPage> createState() => _HouseDetailPageState();
@@ -23,10 +26,24 @@ class _HouseDetailPageState extends State<HouseDetailPage> {
   bool _hasMatchRequest = false;
   String? _matchStatus;
   List<dynamic> _reviews = [];
+  late Future<Map<String, dynamic>> _compatibilityFuture;
 
   @override
   void initState() {
     super.initState();
+    if (widget.searchParams != null) {
+      _compatibilityFuture = MatchService.getSearchCompatibility(
+        homeId: widget.homeId,
+        requestedGuestCount: widget.searchParams!['guests'] as int?,
+        checkIn: widget.searchParams!['checkIn'] as String?,
+        checkOut: widget.searchParams!['checkOut'] as String?,
+        amenities: widget.searchParams!['amenities'] as String?,
+        environment: widget.searchParams!['environment'] as String?,
+        propertyType: widget.searchParams!['propertyType'] as String?,
+      );
+    } else {
+      _compatibilityFuture = MatchService.getAICompatibility(widget.homeId);
+    }
     _loadData();
   }
 
@@ -128,7 +145,7 @@ class _HouseDetailPageState extends State<HouseDetailPage> {
                         const Text('You must physically list a home natively on SwapScout before requesting an exchange!')
                       else ...[
                         DropdownButtonFormField<int>(
-                          value: selectedHomeId,
+                          initialValue: selectedHomeId,
                           decoration: const InputDecoration(
                             labelText: 'Which home are you offering?',
                             border: OutlineInputBorder(),
@@ -305,7 +322,7 @@ class _HouseDetailPageState extends State<HouseDetailPage> {
           children: [
             // Image
             if (_home!['images'] != null && (_home!['images'] as List).isNotEmpty)
-              Container(
+              SizedBox(
                 height: 250,
                 width: double.infinity,
                 child: Image.network(
@@ -376,7 +393,7 @@ class _HouseDetailPageState extends State<HouseDetailPage> {
                   
                   // AI Compatibility FutureBuilder
                   FutureBuilder<Map<String, dynamic>>(
-                    future: MatchService.getAICompatibility(widget.homeId),
+                    future: _compatibilityFuture,
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {
                         return Container(
@@ -396,7 +413,7 @@ class _HouseDetailPageState extends State<HouseDetailPage> {
                               SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  'Gemini AI is analyzing your compatibility...',
+                                  'Calculating factual compatibility...',
                                   style: TextStyle(color: Colors.blue, fontWeight: FontWeight.w500),
                                 ),
                               ),
@@ -410,155 +427,18 @@ class _HouseDetailPageState extends State<HouseDetailPage> {
                       }
 
                       final aiData = snapshot.data!;
-                      final scoreNum = aiData['compatibility_score'];
-                      final score = scoreNum != null ? (scoreNum as num).toDouble() : 0.0;
-                      final explanation = aiData['match_explanation'] as String?;
-                      
-                      if (explanation == null || explanation.isEmpty) {
-                        return const SizedBox.shrink();
-                      }
+                      final score = aiData['compatibility_score'] as int? ?? 0;
+                      final explanationStr = aiData['match_explanation'] as String? ?? 'Compatibility details unavailable.';
+                      final factors = aiData['factors'] as Map<String, dynamic>? ?? {};
 
-                      // Determine color based on score
-                      Color badgeColor = Colors.grey;
-                      if (score >= 90) {
-                        badgeColor = Colors.green;
-                      } else if (score >= 70) {
-                        badgeColor = Colors.orange;
-                      } else {
-                        badgeColor = Colors.red;
-                      }
-
-                      return InkWell(
-                        onTap: () {
-                          showModalBottomSheet(
-                            context: context,
-                            isScrollControlled: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => Container(
-                              padding: const EdgeInsets.all(24),
-                              decoration: const BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                              ),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Center(
-                                    child: Container(
-                                      width: 40,
-                                      height: 4,
-                                      margin: const EdgeInsets.only(bottom: 24),
-                                      decoration: BoxDecoration(
-                                        color: Colors.grey[300],
-                                        borderRadius: BorderRadius.circular(2),
-                                      ),
-                                    ),
-                                  ),
-                                  Row(
-                                    children: [
-                                      Icon(Icons.auto_awesome, color: badgeColor, size: 28),
-                                      const SizedBox(width: 12),
-                                      Text(
-                                        '${score.toInt()}% AI Match',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: badgeColor,
-                                          fontSize: 24,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 20),
-                                  const Text(
-                                    'Gemini Compatibility Analysis',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.black87,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    explanation,
-                                    style: const TextStyle(
-                                      fontSize: 15,
-                                      color: Colors.black87,
-                                      height: 1.5,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 32),
-                                  SizedBox(
-                                    width: double.infinity,
-                                    child: ElevatedButton(
-                                      onPressed: () => Navigator.pop(context),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFFF28C64),
-                                        padding: const EdgeInsets.symmetric(vertical: 16),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(16),
-                                        ),
-                                      ),
-                                      child: const Text('Close', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [badgeColor.withOpacity(0.1), Colors.white],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: badgeColor.withOpacity(0.3)),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(Icons.auto_awesome, color: badgeColor, size: 20),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    '${score.toInt()}% AI Match',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: badgeColor,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              Row(
-                                children: [
-                                  Text(
-                                    'Tap for explanation',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Icon(Icons.arrow_forward_ios, size: 12, color: Colors.grey[600]),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
+                      return CompatibilityScoreWidget(
+                        score: score,
+                        explanation: explanationStr,
+                        factors: factors,
                       );
                     },
                   ),
                   const SizedBox(height: 24),
-
-                  // Property Info
                   if (environment.isNotEmpty || propertyType.isNotEmpty) ...[
                     Row(
                       children: [

@@ -6,6 +6,7 @@ import 'messages.dart';
 import '../state/app_state.dart';
 import '../services/review_service.dart';
 import 'package:flutter_rating_bar/flutter_rating_bar.dart';
+import 'public_profile.dart';
 
 class TripsDashboardPage extends StatefulWidget {
   const TripsDashboardPage({super.key});
@@ -19,7 +20,8 @@ class _TripsDashboardPageState extends State<TripsDashboardPage> with SingleTick
   bool _isLoading = true;
   
   List<dynamic> _pendingRequests = []; // My home receiving requests
-  List<dynamic> _upcomingSwaps = []; // Accepted swaps
+  List<dynamic> _activeSwaps = []; // Currently happening
+  List<dynamic> _upcomingSwaps = []; // Accepted swaps in future
   List<dynamic> _completedTrips = []; // Completed swaps
   int? _currentUserId;
   
@@ -29,7 +31,7 @@ class _TripsDashboardPageState extends State<TripsDashboardPage> with SingleTick
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _loadRequests();
   }
 
@@ -42,11 +44,28 @@ class _TripsDashboardPageState extends State<TripsDashboardPage> with SingleTick
       final requests = await SwapRequestService.getMySwapRequests();
       
       setState(() {
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
+        
         _pendingRequests = requests.where((req) => 
             req['status'] == 'pending' && req['host_id'] == _currentUserId).toList();
             
-        _upcomingSwaps = requests.where((req) => 
-            req['status'] == 'accepted').toList();
+        _activeSwaps = requests.where((req) {
+            if (req['status'] != 'accepted') return false;
+            final start = DateTime.parse(req['start_date']);
+            final end = DateTime.parse(req['end_date']);
+            final startDay = DateTime(start.year, start.month, start.day);
+            final endDay = DateTime(end.year, end.month, end.day);
+            return (startDay.isBefore(today) || startDay.isAtSameMomentAs(today)) && 
+                   (endDay.isAfter(today) || endDay.isAtSameMomentAs(today));
+        }).toList();
+
+        _upcomingSwaps = requests.where((req) {
+            if (req['status'] != 'accepted') return false;
+            final start = DateTime.parse(req['start_date']);
+            final startDay = DateTime(start.year, start.month, start.day);
+            return startDay.isAfter(today);
+        }).toList();
             
         _completedTrips = requests.where((req) => 
             req['status'] == 'completed').toList();
@@ -109,9 +128,9 @@ class _TripsDashboardPageState extends State<TripsDashboardPage> with SingleTick
   }
 
   void _showLeaveReviewSheet(BuildContext context, int swapRequestId, int homeId) {
-    double _rating = 0;
-    final TextEditingController _commentController = TextEditingController();
-    bool _isSubmitting = false;
+    double rating = 0;
+    final TextEditingController commentController = TextEditingController();
+    bool isSubmitting = false;
 
     showModalBottomSheet(
       context: context,
@@ -145,14 +164,14 @@ class _TripsDashboardPageState extends State<TripsDashboardPage> with SingleTick
                         itemCount: 5,
                         itemPadding: const EdgeInsets.symmetric(horizontal: 4.0),
                         itemBuilder: (context, _) => const Icon(Icons.star, color: Colors.amber),
-                        onRatingUpdate: (rating) {
-                          setSheetState(() => _rating = rating);
+                        onRatingUpdate: (newRating) {
+                          setSheetState(() => rating = newRating);
                         },
                       ),
                     ),
                     const SizedBox(height: 16),
                     TextField(
-                      controller: _commentController,
+                      controller: commentController,
                       maxLines: 4,
                       decoration: const InputDecoration(
                         hintText: 'Share your experience...',
@@ -163,24 +182,24 @@ class _TripsDashboardPageState extends State<TripsDashboardPage> with SingleTick
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: _isSubmitting ? null : () async {
-                          if (_rating == 0) {
+                        onPressed: isSubmitting ? null : () async {
+                          if (rating == 0) {
                             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a star rating.'), backgroundColor: Colors.red));
                             return;
                           }
-                          setSheetState(() => _isSubmitting = true);
+                          setSheetState(() => isSubmitting = true);
                           try {
                             await ReviewService.submitReview(
                               swapRequestId: swapRequestId,
                               homeId: homeId,
-                              rating: _rating.toInt(),
-                              comment: _commentController.text,
+                              rating: rating.toInt(),
+                              comment: commentController.text,
                             );
                             if (mounted) {
                                setState(() {
                                  _myReviews[swapRequestId] = {
-                                    'rating': _rating.toInt(),
-                                    'comment': _commentController.text
+                                    'rating': rating.toInt(),
+                                    'comment': commentController.text
                                  };
                                });
                             }
@@ -190,12 +209,12 @@ class _TripsDashboardPageState extends State<TripsDashboardPage> with SingleTick
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: Colors.red));
                           } finally {
                             if (mounted) {
-                                setSheetState(() => _isSubmitting = false);
+                                setSheetState(() => isSubmitting = false);
                             }
                           }
                         },
                         style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF28C64), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14)),
-                        child: _isSubmitting ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Text('Submit Review', style: TextStyle(fontSize: 16)),
+                        child: isSubmitting ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Text('Submit Review', style: TextStyle(fontSize: 16)),
                       ),
                     )
                   ],
@@ -258,17 +277,23 @@ class _TripsDashboardPageState extends State<TripsDashboardPage> with SingleTick
           children: [
             Row(
               children: [
-                CircleAvatar(
-                  backgroundColor: const Color(0xFFF28C64),
-                  child: Text(otherUser['name'] != null ? otherUser['name'][0].toUpperCase() : 'U', 
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                GestureDetector(
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PublicProfilePage(userId: otherUser['id']))),
+                  child: CircleAvatar(
+                    backgroundColor: const Color(0xFFF28C64),
+                    child: Text(otherUser['name'] != null ? otherUser['name'][0].toUpperCase() : 'U', 
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(otherUser['name'] ?? 'Traveler', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      GestureDetector(
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PublicProfilePage(userId: otherUser['id']))),
+                        child: Text(otherUser['name'] ?? 'Traveler', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, decoration: TextDecoration.underline)),
+                      ),
                       const SizedBox(height: 4),
                       Text('Offering: ${otherHome['title'] ?? 'Unknown Home'}', style: const TextStyle(fontSize: 13, color: Colors.black54)),
                     ],
@@ -357,6 +382,40 @@ class _TripsDashboardPageState extends State<TripsDashboardPage> with SingleTick
                 ],
               ),
               
+            // ACTIVE SWAPS TAB
+            if (tabType == 'active') ...[
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12.0),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text('HAPPENING NOW', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                  ]
+                ),
+              ),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => MessagesPage(otherUserId: otherUser['id'])));
+                  },
+                  icon: const Icon(Icons.chat_bubble_outline),
+                  label: const Text('Message Host'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2B2B2B),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ],
+
             // UPCOMING SWAPS TAB
             if (tabType == 'upcoming') ...[
               if (countdownStr.isNotEmpty)
@@ -487,10 +546,12 @@ class _TripsDashboardPageState extends State<TripsDashboardPage> with SingleTick
           labelColor: const Color(0xFFF28C64),
           unselectedLabelColor: Colors.black54,
           indicatorColor: const Color(0xFFF28C64),
+          isScrollable: true,
           tabs: const [
-            Tab(text: 'Action Required'),
-            Tab(text: 'Upcoming Swaps'),
-            Tab(text: 'Past Trips'),
+            Tab(text: 'Pending'),
+            Tab(text: 'Active'),
+            Tab(text: 'Upcoming'),
+            Tab(text: 'Past'),
           ],
         ),
       ),
@@ -500,6 +561,7 @@ class _TripsDashboardPageState extends State<TripsDashboardPage> with SingleTick
               controller: _tabController,
               children: [
                 _buildList(_pendingRequests, 'pending'),
+                _buildList(_activeSwaps, 'active'),
                 _buildList(_upcomingSwaps, 'upcoming'),
                 _buildList(_completedTrips, 'past'),
               ],

@@ -17,7 +17,7 @@ class ReviewService {
       body['comment'] = comment.trim();
     }
 
-    final response = await ApiClient.post('/reviews/', body);
+    final response = await ApiClient.post('/reviews', body);
 
     if (response.statusCode == 201) {
       return jsonDecode(response.body);
@@ -41,9 +41,11 @@ class ReviewService {
     final response = await ApiClient.get('/reviews/swap-request/$swapRequestId/my-review');
     
     if (response.statusCode == 200) {
-      return jsonDecode(response.body);
+      final decoded = jsonDecode(response.body);
+      if (decoded == null) return null;
+      return decoded as Map<String, dynamic>;
     } else if (response.statusCode == 404) {
-      return null; // Not found, which is fine
+      return null; // Kept for backwards compatibility
     } else {
       throw Exception('Failed to check review status');
     }

@@ -5,8 +5,14 @@ import 'package:http/http.dart' as http;
 import 'token_storage.dart';
 import '../utils/global_messenger.dart';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 class ApiClient {
-  static const String baseUrl = 'http://127.0.0.1:8000';
+  static String get baseUrl {
+    if (kIsWeb) return 'http://127.0.0.1:8000';
+    if (Platform.isAndroid) return 'http://10.0.2.2:8000';
+    return 'http://127.0.0.1:8000';
+  }
 
   static String getFullImageUrl(String? path) {
     if (path == null || path.isEmpty) return 'https://placehold.co/600x400?text=No+Image';
